@@ -272,8 +272,8 @@
 
     <div class="sb-block">
       <div class="tf-row">
-        <div class="tf-btn"        data-tf="D"  onclick="setTF(this)">1D</div>
-        <div class="tf-btn"        data-tf="W"  onclick="setTF(this)">1W</div>
+        <div class="tf-btn"        data-tf="D"  onclick="setTF(this)">1W</div>
+        <div class="tf-btn"        data-tf="W"  onclick="setTF(this)">2W</div>
         <div class="tf-btn active" data-tf="M"  onclick="setTF(this)">1M</div>
         <div class="tf-btn"        data-tf="3M" onclick="setTF(this)">3M</div>
         <div class="tf-btn"        data-tf="Y"  onclick="setTF(this)">1Y</div>
@@ -410,11 +410,11 @@ let candleData = [];
 let lastFundamentals = {};
 
 const TF_CFG = {
-  'D':  { res:'5',  seconds: 86400,      label:'1 DAY' },
-  'W':  { res:'15', seconds: 7*86400,    label:'1 WEEK' },
-  'M':  { res:'60', seconds: 30*86400,   label:'1 MONTH' },
-  '3M': { res:'D',  seconds: 90*86400,   label:'3 MONTHS' },
-  'Y':  { res:'W',  seconds: 365*86400,  label:'1 YEAR' },
+  'D':  { res:'D', seconds: 7*86400,     label:'1 WEEK' },
+  'W':  { res:'D', seconds: 14*86400,    label:'2 WEEKS' },
+  'M':  { res:'D', seconds: 30*86400,    label:'1 MONTH' },
+  '3M': { res:'D', seconds: 90*86400,    label:'3 MONTHS' },
+  'Y':  { res:'W', seconds: 365*86400,   label:'1 YEAR' },
 };
 
 // ── API helpers — all calls go through /api/* proxy ──
