@@ -163,20 +163,84 @@
 
   /* ── SPINNER ── */
   .spinner-wrap {
-    position:fixed; inset:0; background:rgba(7,9,12,.85);
+    position:fixed; inset:0; background:rgba(7,9,12,.92);
     display:flex; align-items:center; justify-content:center;
-    z-index:200; opacity:0; pointer-events:none; transition:opacity .2s; backdrop-filter:blur(4px);
+    z-index:200; opacity:0; pointer-events:none; transition:opacity .25s; backdrop-filter:blur(6px);
   }
   .spinner-wrap.on { opacity:1; pointer-events:all; }
-  .spinner { width:38px; height:38px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; margin:0 auto 12px; }
+  .spinner-box { text-align:center; }
+  .spinner {
+    width:52px; height:52px;
+    border:3px solid var(--border);
+    border-top-color:var(--accent);
+    border-right-color:rgba(0,212,255,0.3);
+    border-radius:50%;
+    animation:spin .8s linear infinite;
+    margin:0 auto 18px;
+    box-shadow: 0 0 24px rgba(0,212,255,0.15);
+  }
   @keyframes spin { to { transform:rotate(360deg); } }
-  .spinner-txt { font-family:'Space Mono',monospace; font-size:11px; color:var(--muted); letter-spacing:2px; text-align:center; }
+  .spinner-stage {
+    font-family:'Space Mono',monospace; font-size:13px;
+    color:var(--accent); letter-spacing:3px; text-align:center;
+    margin-bottom:8px;
+  }
+  .spinner-txt {
+    font-family:'Space Mono',monospace; font-size:10px;
+    color:var(--muted); letter-spacing:2px; text-align:center;
+  }
+  .spinner-steps {
+    display:flex; gap:6px; justify-content:center; margin-top:20px;
+  }
+  .spinner-step {
+    width:6px; height:6px; border-radius:50%; background:var(--border);
+    transition:background .3s;
+  }
+  .spinner-step.done { background:var(--bull); }
+  .spinner-step.active { background:var(--accent); animation:pulse 1s infinite; }
+
+  /* RUN button loading state */
+  .search-btn.loading {
+    background: var(--bg3);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    cursor: not-allowed;
+    position: relative;
+    overflow: hidden;
+  }
+  .search-btn.loading::after {
+    content: '';
+    position: absolute; left: -100%; top: 0; bottom: 0; width: 60%;
+    background: linear-gradient(90deg, transparent, rgba(0,212,255,0.15), transparent);
+    animation: shimmer 1.2s infinite;
+  }
+  @keyframes shimmer { to { left: 200%; } }
+
+  /* Chart loading overlay */
+  .chart-loading {
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:var(--bg); gap:14px;
+    opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  .chart-loading.on { opacity:1; pointer-events:all; }
+  .chart-loading-ring {
+    width:36px; height:36px;
+    border:2px solid var(--border);
+    border-top-color:var(--accent);
+    border-radius:50%;
+    animation:spin .7s linear infinite;
+  }
+  .chart-loading-txt {
+    font-family:'Space Mono',monospace; font-size:10px;
+    color:var(--muted); letter-spacing:3px;
+  }
 
   .toast {
-    position:fixed; bottom:20px; right:20px; max-width:340px;
+    position:fixed; bottom:20px; right:20px; max-width:360px;
     background:rgba(255,23,68,.12); border:1px solid rgba(255,23,68,.35); color:var(--bear);
-    font-family:'Space Mono',monospace; font-size:11px; padding:10px 16px; border-radius:7px;
-    z-index:300; opacity:0; pointer-events:none; transition:opacity .3s; line-height:1.5;
+    font-family:'Space Mono',monospace; font-size:11px; padding:12px 16px; border-radius:7px;
+    z-index:300; opacity:0; pointer-events:none; transition:opacity .3s; line-height:1.6;
   }
   .toast.on { opacity:1; }
 
@@ -286,8 +350,12 @@
       </div>
     </div>
 
-    <div id="chart-wrap">
+    <div id="chart-wrap" style="position:relative;">
       <div class="chart-empty" id="chartEmpty">ENTER A TICKER AND CLICK RUN</div>
+      <div class="chart-loading" id="chartLoading">
+        <div class="chart-loading-ring"></div>
+        <div class="chart-loading-txt" id="chartLoadingTxt">LOADING CANDLES...</div>
+      </div>
     </div>
 
     <div class="levels-bar">
@@ -319,7 +387,19 @@
   </div>
 </div>
 
-<div class="spinner-wrap" id="spinner"><div><div class="spinner"></div><div class="spinner-txt" id="spinnerTxt">LOADING...</div></div></div>
+<div class="spinner-wrap" id="spinner">
+  <div class="spinner-box">
+    <div class="spinner"></div>
+    <div class="spinner-stage" id="spinnerStage">ANALYZING</div>
+    <div class="spinner-txt" id="spinnerTxt">Please wait...</div>
+    <div class="spinner-steps">
+      <div class="spinner-step" id="step1"></div>
+      <div class="spinner-step" id="step2"></div>
+      <div class="spinner-step" id="step3"></div>
+      <div class="spinner-step" id="step4"></div>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -404,10 +484,17 @@ async function loadCandles(ticker) {
   const from = to - cfg.seconds;
   document.getElementById('tfLabel').textContent = cfg.label;
 
+  // Show chart loading overlay
+  document.getElementById('chartLoading').classList.add('on');
+  document.getElementById('chartEmpty').style.display = 'none';
+
   const data = await apiCandles(ticker, cfg.res, from, to);
+
+  // Hide chart loading overlay
+  document.getElementById('chartLoading').classList.remove('on');
+
   if (data.s !== 'ok' || !data.t || data.t.length === 0) {
-    document.getElementById('chartEmpty').textContent = 'NO CANDLE DATA FOR THIS PERIOD';
-    document.getElementById('chart-wrap').innerHTML = '<div class="chart-empty" id="chartEmpty">NO CANDLE DATA FOR THIS PERIOD</div>';
+    document.getElementById('chart-wrap').innerHTML = '<div class="chart-empty" id="chartEmpty">NO CANDLE DATA FOR THIS PERIOD</div><div class="chart-loading" id="chartLoading"><div class="chart-loading-ring"></div><div class="chart-loading-txt">LOADING CANDLES...</div></div>';
     return;
   }
 
@@ -795,15 +882,40 @@ function setTF(el) {
 }
 
 // ── HELPERS ──
+const STAGES = [
+  { stage:'FETCHING QUOTE',   sub:'Connecting to Finnhub...',      step:1 },
+  { stage:'LOADING CHART',    sub:'Fetching candlestick data...',   step:2 },
+  { stage:'RUNNING AI',       sub:'Claude is analysing the stock...', step:3 },
+  { stage:'DONE',             sub:'',                               step:4 },
+];
+
 function setBusy(on, msg = 'LOADING...') {
-  document.getElementById('spinnerTxt').textContent = msg;
-  document.getElementById('spinner').classList.toggle('on', on);
-  document.getElementById('runBtn').disabled = on;
+  const wrap = document.getElementById('spinner');
+  const btn  = document.getElementById('runBtn');
+  wrap.classList.toggle('on', on);
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+  btn.textContent = on ? '...' : 'RUN';
+
+  // Map msg to stage
+  const match = STAGES.find(s => msg.includes(s.stage.split(' ')[0])) || STAGES[0];
+  document.getElementById('spinnerStage').textContent = match.stage;
+  document.getElementById('spinnerTxt').textContent   = match.sub;
+
+  // Update step dots
+  for (let i = 1; i <= 4; i++) {
+    const dot = document.getElementById('step' + i);
+    if (i < match.step)      { dot.className = 'spinner-step done'; }
+    else if (i === match.step) { dot.className = 'spinner-step active'; }
+    else                      { dot.className = 'spinner-step'; }
+  }
 }
+
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('on');
-  setTimeout(() => t.classList.remove('on'), 4000);
+  t.textContent = '⚠ ' + msg;
+  t.classList.add('on');
+  setTimeout(() => t.classList.remove('on'), 5000);
 }
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
