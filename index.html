@@ -462,7 +462,6 @@ async function analyzeStock() {
     updateHero(ticker, quote, profile);
     updateMetrics(quote, metrics);
     updateIV(quote, metrics);
-    updateOptions(quote);
 
     // Fetch candles
     setBusy(true, 'LOADING CHART...');
