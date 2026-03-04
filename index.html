@@ -272,9 +272,9 @@
 
     <div class="sb-block">
       <div class="tf-row">
-        <div class="tf-btn active" data-tf="D"  onclick="setTF(this)">1D</div>
+        <div class="tf-btn"        data-tf="D"  onclick="setTF(this)">1D</div>
         <div class="tf-btn"        data-tf="W"  onclick="setTF(this)">1W</div>
-        <div class="tf-btn"        data-tf="M"  onclick="setTF(this)">1M</div>
+        <div class="tf-btn active" data-tf="M"  onclick="setTF(this)">1M</div>
         <div class="tf-btn"        data-tf="3M" onclick="setTF(this)">3M</div>
         <div class="tf-btn"        data-tf="Y"  onclick="setTF(this)">1Y</div>
       </div>
@@ -405,7 +405,7 @@
 <script>
 // ── STATE ──
 let currentTicker = '';
-let currentTF = 'D';
+let currentTF = 'M';
 let candleData = [];
 let lastFundamentals = {};
 
@@ -414,7 +414,7 @@ const TF_CFG = {
   'W':  { res:'15', seconds: 7*86400,    label:'1 WEEK' },
   'M':  { res:'60', seconds: 30*86400,   label:'1 MONTH' },
   '3M': { res:'D',  seconds: 90*86400,   label:'3 MONTHS' },
-  'Y':  { res:'D',  seconds: 365*86400,  label:'1 YEAR' },
+  'Y':  { res:'W',  seconds: 365*86400,  label:'1 YEAR' },
 };
 
 // ── API helpers — all calls go through /api/* proxy ──
@@ -548,11 +548,19 @@ function updateMetrics(quote, m) {
 }
 
 function updateIV(quote, m) {
-  // Simple DCF estimate: EPS × (8.5 + 2g) × 4.4 / AAA_yield
-  // Using a simplified Graham formula as a rough intrinsic value proxy
-  const eps  = m['epsBasicExclExtraAnnual'] || (quote.c / (m['peBasicExclExtraTTM'] || 20));
-  const growth = Math.min(Math.max(m['revenueGrowth3Y'] || 8, 0), 25);
-  const iv = eps * (8.5 + 2 * growth) * (4.4 / 4.8); // Graham Number variant
+  const price = quote.c;
+  const eps   = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
+  const bvps  = m['bookValuePerShareAnnual'] || 0;
+  const pe    = m['peBasicExclExtraTTM'] || 20;
+
+  let iv = 0;
+  if (eps > 0 && bvps > 0) {
+    iv = Math.sqrt(22.5 * Math.abs(eps) * Math.abs(bvps)); // Graham Number
+  } else if (eps > 0) {
+    iv = eps * 20; // Fair P/E of 20
+  } else {
+    iv = price * (18 / Math.max(pe, 1)); // Normalise to P/E 18
+  }
 
   if (!iv || iv <= 0 || !isFinite(iv)) {
     document.getElementById('ivNum').textContent = 'N/A';
@@ -561,7 +569,6 @@ function updateIV(quote, m) {
     return;
   }
 
-  const price  = quote.c;
   const margin = ((iv - price) / price * 100);
 
   document.getElementById('ivNum').textContent = '$' + iv.toFixed(2);
@@ -807,7 +814,7 @@ Write 4–5 sentences covering:
 Be direct, use numbers, no fluff. Professional tone.`;
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
