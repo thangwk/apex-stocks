@@ -42,109 +42,160 @@ export function calcIV(m, industry, fmp, targets) {
   const sectorPFCF = getSectorMultiple(industry, SECTOR_PFCF, 18);
   const sectorEV   = getSectorMultiple(industry, SECTOR_EV, 14);
 
-  const epsGAAP  = m.epsBasicExclExtraAnnual || m.epsTTM || 0;
-  const epsTTM   = m.epsTTM || epsGAAP;
-  // FIX 2: use forward EPS if available, else fall back to TTM
-  const epsForwd = m.epsForward || m.epsEstimateNext || epsTTM;
-  const bvps     = m.bookValuePerShareAnnual || 0;
-  const roe      = m.roeRfy || m.roeTTM || 0;
-  const fcfPS    = m.cashFlowPerShareTTM || m.freeCashFlowPerShareTTM || 0;
-  const ebitdaPS = m.ebitdPerShareTTM || m.ebitdPerShareAnnual || m.ebitdaPerShare || 0;
-  const evEbitda = m.evEbitdaTTM || 0;
-  const revenuePS= m.revenuePerShareTTM || m.revenuePerShareAnnual || 0;
-  const psRatio  = m.psTTM || 0;
-  const fwdPE    = m.forwardPE || 0;
-  const beta     = m.beta || 1;
+  const epsGAAP   = m.epsBasicExclExtraAnnual || m.epsTTM || 0;
+  const epsTTM    = m.epsTTM || epsGAAP;
+  const epsForwd  = m.epsForward || m.epsEstimateNext || epsTTM;
+  // Net income per share (excludes NRI for cleaner recurring earnings)
+  const netIncPS  = m.netIncomePerShareTTM || m.netIncomePerShareAnnual || epsGAAP;
+  const epsNoNRI  = m.epsExclExtraItemsTTM || m.epsNriPerShareTTM || netIncPS; // EPS ex-NRI
+  const bvps      = m.bookValuePerShareAnnual || 0;
+  const roe       = m.roeRfy || m.roeTTM || 0;
+  const fcfPS     = m.cashFlowPerShareTTM || m.freeCashFlowPerShareTTM || 0;
+  const ebitdaPS  = m.ebitdPerShareTTM || m.ebitdPerShareAnnual || m.ebitdaPerShare || 0;
+  const evEbitda  = m.evEbitdaTTM || 0;
+  const revenuePS = m.revenuePerShareTTM || m.revenuePerShareAnnual || 0;
+  const psRatio   = m.psTTM || 0;
+  const pbRatio   = m.pbAnnual || m.pbQuarterly || 0;
+  const peRatio   = m.peBasicExclExtraTTM || m.peTTM || 0;
+  const fwdPE     = m.forwardPE || 0;
+  const beta      = m.beta || 1;
 
-  // Best growth
-  const growth = Math.min(Math.max(
-    m.revenueGrowth3Y || 0, m.epsGrowth3Y || 0,
-    ((m.epsGrowthTTMYoy || 0) + (m.revenueGrowthTTMYoy || 0)) / 2, 3
-  ), 50);
+  // Historical mean multiples (Finnhub supplies 10-yr medians)
+  const psMedian  = m.psMedian10y  || m.ps5YMedian  || psRatio  * 0.9 || 0;
+  const peMedian  = m.peMedian10y  || m.pe5YMedian  || peRatio  * 0.9 || sectorPE;
+  const pbMedian  = m.pbMedian10y  || m.pb5YMedian  || pbRatio  * 0.9 || 0;
+
+  // Growth rates
+  const revenueGrowth = Math.max(m.revenueGrowth3Y || 0, m.revenueGrowthTTMYoy || 0, 3);
+  const epsGrowth     = Math.max(m.epsGrowth3Y || 0, m.epsGrowthTTMYoy || 0, 3);
+  const growth = Math.min(Math.max(revenueGrowth, epsGrowth, 3), 50);
   const highGrowth = growth > 15;
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
-  const methods = [];
-
-  // FIX 3: Raise DCF growth cap — 25% for high growth, fade to terminal 3%
-  if (fcfPS > 0) {
-    const r  = 0.09;
-    const g1 = Math.min(growth / 100, highGrowth ? 0.25 : 0.10); // stage 1 (yrs 1-5)
-    const g2 = Math.min(g1 * 0.5, 0.05);                          // stage 2 (yrs 6-10), fade
-    const gt = 0.03;                                                // terminal
-    // Two-stage DCF
-    let v = 0;
-    let cf = fcfPS;
-    for (let yr = 1; yr <= 5;  yr++) { cf *= (1 + g1); v += cf / Math.pow(1+r, yr); }
-    for (let yr = 6; yr <= 10; yr++) { cf *= (1 + g2); v += cf / Math.pow(1+r, yr); }
-    const terminal = (cf * (1 + gt)) / (r - gt);
-    v += terminal / Math.pow(1+r, 10);
-    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/FCF (2-stage)', value:v, weight:2.5 });
-  } else if (epsGAAP > 0) {
-    const r  = 0.09;
-    const g1 = Math.min(growth / 100, highGrowth ? 0.20 : 0.08);
-    const g2 = Math.min(g1 * 0.5, 0.04);
-    const gt = 0.03;
-    let v = 0, cf = epsGAAP * 0.75;
-    for (let yr = 1; yr <= 5;  yr++) { cf *= (1 + g1); v += cf / Math.pow(1+r, yr); }
-    for (let yr = 6; yr <= 10; yr++) { cf *= (1 + g2); v += cf / Math.pow(1+r, yr); }
-    v += (cf * (1 + gt)) / (r - gt) / Math.pow(1+r, 10);
-    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/EPS (2-stage)', value:v, weight:1.5 });
+  // Helper: 20-year DCF with 3-stage growth (high → fade → terminal)
+  function dcf20(cf0, g1, fadeYrs, gt, r) {
+    if (cf0 <= 0 || !isFinite(cf0)) return 0;
+    let v = 0, cf = cf0;
+    const g2 = g1 * 0.5;                  // fade stage
+    const g3 = Math.min(g2 * 0.5, gt);    // late fade
+    for (let yr = 1; yr <= 5;          yr++) { cf *= (1+g1); v += cf / Math.pow(1+r, yr); }
+    for (let yr = 6; yr <= fadeYrs;    yr++) { cf *= (1+g2); v += cf / Math.pow(1+r, yr); }
+    for (let yr = fadeYrs+1; yr <= 20; yr++) { cf *= (1+g3); v += cf / Math.pow(1+r, yr); }
+    // Terminal value at yr 20
+    const tv = (cf * (1+gt)) / (r - gt);
+    v += tv / Math.pow(1+r, 20);
+    return isFinite(v) && v > 0 ? v : 0;
   }
 
-  // FIX 2: Forward P/E — use forward EPS, no arbitrary haircut
+  const r  = 0.09;
+  const gt = 0.03;
+  const g1 = Math.min(growth / 100, highGrowth ? 0.25 : 0.10);
+
+  const methods = [];
+
+  // ── 1. DCF 20-year (cash flow proxy) ──────────────────────────
+  if (fcfPS > 0 || epsGAAP > 0) {
+    const cf0 = fcfPS > 0 ? fcfPS : epsGAAP * 0.75;
+    const v = dcf20(cf0, g1, 12, gt, r);
+    if (v > 0) methods.push({ name:'DCF 20Y', value:v, weight:2.5 });
+  }
+
+  // ── 2. Discounted FCF 20-year (pure FCF only) ─────────────────
+  if (fcfPS > 0) {
+    const v = dcf20(fcfPS, g1, 12, gt, r);
+    if (v > 0) methods.push({ name:'DCF/FCF 20Y', value:v, weight:2.5 });
+  }
+
+  // ── 3. Discounted Net Income 20-year ──────────────────────────
+  if (netIncPS > 0) {
+    const v = dcf20(netIncPS, Math.min(epsGrowth / 100, highGrowth ? 0.20 : 0.10), 12, gt, r);
+    if (v > 0) methods.push({ name:'DCF/NI 20Y', value:v, weight:2 });
+  }
+
+  // ── 4. DCF/FCF with Terminal Value (Gordon Growth, explicit) ──
+  if (fcfPS > 0) {
+    const g1t = Math.min(growth / 100, highGrowth ? 0.25 : 0.10);
+    const g2t = Math.min(g1t * 0.5, 0.05);
+    let v = 0, cf = fcfPS;
+    for (let yr = 1; yr <= 5;  yr++) { cf *= (1+g1t); v += cf / Math.pow(1+r, yr); }
+    for (let yr = 6; yr <= 10; yr++) { cf *= (1+g2t); v += cf / Math.pow(1+r, yr); }
+    const terminal = (cf * (1+gt)) / (r - gt);
+    v += terminal / Math.pow(1+r, 10);
+    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/FCF Terminal', value:v, weight:2.5 });
+  }
+
+  // ── 5. Mean P/S (10-yr historical) ────────────────────────────
+  if (revenuePS > 0 && psMedian > 0) {
+    const v = revenuePS * psMedian;
+    if (v > 0) methods.push({ name:'Mean P/S', value:v, weight:1.5 });
+  }
+
+  // ── 6. Mean P/E with NRI (10-yr historical) ───────────────────
+  // Uses GAAP EPS which includes non-recurring items
+  if (epsGAAP > 0 && peMedian > 0) {
+    const v = epsGAAP * peMedian;
+    if (v > 0) methods.push({ name:'Mean P/E (NRI)', value:v, weight:1.5 });
+  }
+
+  // ── 7. Mean P/B (10-yr historical) ────────────────────────────
+  if (bvps > 0 && pbMedian > 0) {
+    const v = bvps * pbMedian;
+    if (v > 0) methods.push({ name:'Mean P/B', value:v, weight:1 });
+  }
+
+  // ── 8. P/S Growth Rate (Peter Lynch style for revenue) ────────
+  // PSGR: fair P/S = revenue growth rate / 2 (analogous to PEG)
+  if (revenuePS > 0 && revenueGrowth > 5) {
+    const fairPS = Math.min(revenueGrowth / 2, 15); // cap at 15x
+    const v = revenuePS * fairPS;
+    if (v > 0) methods.push({ name:'P/S Growth', value:v, weight:1 });
+  }
+
+  // ── 9. P/E Growth without NRI ─────────────────────────────────
+  // Uses EPS ex-NRI × PEG logic: fair P/E = growth rate (Mohnish Pabrai / Lynch)
+  if (epsNoNRI > 0 && epsGrowth > 5) {
+    const fairPE = Math.min(epsGrowth * 1.0, 50); // 1:1 PEG without NRI
+    const v = epsNoNRI * fairPE;
+    if (v > 0) methods.push({ name:'P/E Growth (ex-NRI)', value:v, weight:1.5 });
+  }
+
+  // ── Legacy methods (kept for breadth) ─────────────────────────
   if (fwdPE > 0 && epsForwd > 0) {
-    // Fair P/E = sector P/E, capped at 1.1× current forward P/E (don't assume re-rating)
     const fairFwdPE = Math.min(sectorPE, fwdPE * 1.1);
     const v = epsForwd * fairFwdPE;
     if (v > 0) methods.push({ name:'Forward P/E', value:v, weight:2 });
   }
 
-  // FIX 4: P/FCF — use blended market + sector multiple, not sector alone
   if (fcfPS > 0) {
     const marketPFCF  = m.pfcfShareTTM || 0;
     const blendedPFCF = marketPFCF > 0
-      ? (sectorPFCF * 0.6 + marketPFCF * 0.4)  // blend sector norm with market reality
+      ? (sectorPFCF * 0.6 + marketPFCF * 0.4)
       : sectorPFCF;
     methods.push({ name:'P/FCF', value:fcfPS * Math.min(blendedPFCF, sectorPFCF * 1.3), weight:2 });
   }
 
-  // FIX 4: EV/EBITDA — blend sector avg with actual market multiple
   if (ebitdaPS > 0) {
-    const blendedEV = evEbitda > 0
-      ? (sectorEV * 0.6 + evEbitda * 0.4)
-      : sectorEV;
+    const blendedEV = evEbitda > 0 ? (sectorEV * 0.6 + evEbitda * 0.4) : sectorEV;
     methods.push({ name:'EV/EBITDA', value:ebitdaPS * Math.min(blendedEV, sectorEV * 1.3), weight:2 });
   }
 
-  // Sector P/E
   if (earningsPS > 0)
     methods.push({ name:'Sector P/E', value:earningsPS * sectorPE, weight:1.5 });
 
-  // PEG
   if (earningsPS > 0 && growth > 5) {
     const fairPE = Math.min(growth * 1.5, 60);
     methods.push({ name:'PEG', value:earningsPS * fairPE, weight:1 });
   }
 
-  // P/S for tech
-  if (revenuePS > 0 && (highGrowth || ['Technology','Software','Internet','Semiconductor'].some(s => industry.includes(s)))) {
-    const fairPS = Math.min(psRatio > 0 ? psRatio * 0.8 : sectorEV * 0.4, 20);
-    if (fairPS > 0) methods.push({ name:'P/S', value:revenuePS * fairPS, weight:1 });
-  }
-
-  // Graham (value only)
   if (epsGAAP > 0 && bvps > 5 && !highGrowth && roe < 50)
     methods.push({ name:'Graham', value:Math.sqrt(22.5 * epsGAAP * bvps), weight:0.5 });
 
-  // P/B
   if (bvps > 0 && roe > 0) {
     const cappedROE = Math.min(roe, 50);
     const fairPB = Math.min((cappedROE/100)/0.09, 8);
     methods.push({ name:'P/B', value:bvps * fairPB, weight:0.5 });
   }
 
-  // DDM
   const divTTM  = m.dividendPerShareTTM || 0;
   const divGrow = (m.dividendGrowthRate5Y || 0) / 100;
   if (divTTM > 0 && divGrow > 0 && divGrow < 0.09) {
@@ -152,7 +203,7 @@ export function calcIV(m, industry, fmp, targets) {
     if (v > 0) methods.push({ name:'DDM', value:v, weight:1.5 });
   }
 
-  // FIX 1: Analyst target excluded from IV model — used separately in recommendation only
+  // Analyst target excluded from IV model — used separately in recommendation only
 
   if (methods.length === 0) return null;
 
