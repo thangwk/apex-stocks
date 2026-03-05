@@ -3,31 +3,28 @@ export default async function handler(req, res) {
   const { symbol, tf } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
-  const outputsize = tf === 'full' ? 'full' : 'compact';
+  // Map timeframe to outputsize (number of data points)
+  const outputMap = { compact: 30, full: 365 };
+  const outputsize = outputMap[tf] || 30;
 
   try {
     const r = await fetch(
-      `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&outputsize=${outputsize}&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`
+      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=${outputsize}&apikey=${process.env.TWELVE_DATA_API_KEY}`
     );
     const data = await r.json();
 
-    if (data['Error Message']) return res.status(404).json({ error: `Unknown symbol: ${symbol}` });
-    if (data['Note'])        return res.status(429).json({ error: 'Alpha Vantage rate limit reached. Wait 1 minute.' });
-    if (data['Information']) return res.status(429).json({ error: 'Alpha Vantage daily call limit reached (25/day on free tier).' });
+    if (data.status === 'error') return res.status(400).json({ error: data.message || 'Twelve Data error' });
+    if (!data.values || data.values.length === 0) return res.status(404).json({ error: 'No candle data found for this symbol.' });
 
-    const series = data['Time Series (Daily)'];
-    if (!series) return res.status(404).json({ error: 'No candle data returned.' });
-
-    const candles = Object.entries(series)
-      .map(([date, v]) => ({
-        date,
-        open:   parseFloat(v['1. open']),
-        high:   parseFloat(v['2. high']),
-        low:    parseFloat(v['3. low']),
-        close:  parseFloat(v['4. close']),
-        volume: parseInt(v['5. volume']),
-      }))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Twelve Data returns newest first — reverse to oldest first
+    const candles = data.values.reverse().map(v => ({
+      date:   v.datetime,
+      open:   parseFloat(v.open),
+      high:   parseFloat(v.high),
+      low:    parseFloat(v.low),
+      close:  parseFloat(v.close),
+      volume: parseInt(v.volume) || 0,
+    }));
 
     res.status(200).json({ candles });
   } catch (e) {

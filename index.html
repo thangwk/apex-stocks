@@ -450,8 +450,10 @@ async function analyzeStock() {
   if (!ticker) { showToast('Enter a ticker symbol.'); return; }
   currentTicker = ticker;
 
-  // Clear previous chart immediately
+  // Clear previous state immediately
   candleData = [];
+  fullCandleData = [];
+  document.getElementById('aiBody').textContent = 'Analysing...';
   document.getElementById('chart-wrap').innerHTML = `
     <div class="chart-empty" id="chartEmpty" style="display:none"></div>
     <div class="chart-loading on" id="chartLoading">
@@ -461,57 +463,79 @@ async function analyzeStock() {
 
   setBusy(true, 'FETCHING QUOTE...');
 
+  // Step 1 — fetch quote + profile + metrics together (needed for sidebar)
+  let quote, profile, metrics;
   try {
-    // Parallel fetch quote + profile + metrics
-    const [quote, profile, metricsResp] = await Promise.all([
+    const [q, p, m] = await Promise.all([
       apiQuote(ticker),
       apiProfile(ticker),
       apiMetrics(ticker),
     ]);
-
-    if (!quote.c || quote.c === 0) throw new Error(`No data found for "${ticker}". Check the ticker symbol.`);
-
-    const metrics = metricsResp.metric || {};
+    if (!q.c || q.c === 0) throw new Error(`No data found for "${ticker}". Check the ticker symbol.`);
+    quote   = q;
+    profile = p;
+    metrics = m.metric || {};
     lastFundamentals = { quote, profile, metrics };
 
     updateHero(ticker, quote, profile);
     updateMetrics(quote, metrics);
     updateIV(quote, metrics);
-
-    // Fetch candles
-    setBusy(true, 'LOADING CHART...');
-    await loadCandles(ticker);
-
-    setBusy(true, 'RUNNING AI ANALYSIS...');
-    await runAI(ticker, quote, profile, metrics);
-
   } catch (e) {
     showToast(e.message);
-  } finally {
     setBusy(false);
+    return;
   }
+
+  // Step 2 — run chart + AI in parallel, each fails independently
+  setBusy(false);
+
+  const chartPromise = loadCandles(ticker).catch(e => {
+    const wrap = document.getElementById('chart-wrap');
+    if (wrap) wrap.innerHTML = `<div class="chart-empty" id="chartEmpty">${e.message}</div>`;
+  });
+
+  const aiPromise = runAI(ticker, quote, profile, metrics).catch(e => {
+    document.getElementById('aiBody').textContent = `AI analysis unavailable: ${e.message}`;
+  });
+
+  // Both run concurrently — neither blocks the other
+  await Promise.allSettled([chartPromise, aiPromise]);
 }
 
 async function loadCandles(ticker) {
   const cfg = TF_CFG[currentTF];
   document.getElementById('tfLabel').textContent = cfg.label;
 
-  document.getElementById('chartLoading').classList.add('on');
-  document.getElementById('chartEmpty').style.display = 'none';
-
-  const data = await apiCandles(ticker, currentTF);
-
-  document.getElementById('chartLoading').classList.remove('on');
-
-  if (!data.candles || data.candles.length === 0) {
-    document.getElementById('chart-wrap').innerHTML = '<div class="chart-empty" id="chartEmpty">NO CANDLE DATA FOR THIS SYMBOL</div><div class="chart-loading" id="chartLoading"><div class="chart-loading-ring"></div><div class="chart-loading-txt">LOADING CANDLES...</div></div>';
-    return;
+  const chartWrap = document.getElementById('chart-wrap');
+  if (chartWrap) {
+    chartWrap.innerHTML = `
+      <div class="chart-empty" id="chartEmpty" style="display:none"></div>
+      <div class="chart-loading on" id="chartLoading">
+        <div class="chart-loading-ring"></div>
+        <div class="chart-loading-txt">LOADING CANDLES...</div>
+      </div>`;
   }
 
-  // Slice to requested number of days
+  const resp = await fetch(`/api/candles?symbol=${encodeURIComponent(ticker)}&tf=${currentTF === 'Y' ? 'full' : 'compact'}`);
+  const data = await resp.json();
+
+  // Hide loading spinner
+  const loadingEl = document.getElementById('chartLoading');
+  if (loadingEl) loadingEl.classList.remove('on');
+
+  if (!resp.ok) {
+    const msg = resp.status === 429
+      ? '⚠ Twelve Data rate limit hit. Please wait a moment and try again.'
+      : (data.error || `Chart error (${resp.status})`);
+    throw new Error(msg);
+  }
+
+  if (!data.candles || data.candles.length === 0) {
+    throw new Error('No candle data available for this symbol.');
+  }
+
   fullCandleData = data.candles;
   const sliced = fullCandleData.slice(-cfg.days);
-
   candleData = sliced;
   drawChart(candleData);
   updateIndicators(candleData, lastFundamentals.quote);
