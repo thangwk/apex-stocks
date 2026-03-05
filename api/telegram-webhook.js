@@ -34,13 +34,13 @@ export default async function handler(req, res) {
   const cmd    = parts[0]?.toLowerCase().split('@')[0];
   const arg    = parts[1]?.toUpperCase();
 
-  // For /briefing (long-running), respond 200 immediately then work async
-  // For all other commands, do work first then respond 200 — Vercel won't kill mid-work
-  const isBriefing = cmd === '/briefing';
-  if (isBriefing) res.status(200).end();
-
-  // Register/update user profile on every message
-  await registerUser(chatId, from);
+  // Always do all work first, then respond 200 at the end.
+  // Vercel functions stay alive until res.end() is called.
+  // For /briefing (long-running), we respond 200 AFTER sending the first
+  // Telegram message so Telegram stops waiting, but Vercel keeps running.
+  try {
+    await registerUser(chatId, from);
+  } catch(e) { console.error('registerUser error:', e.message); }
 
   try {
     if (cmd === '/start' || cmd === '/help') {
@@ -130,6 +130,8 @@ export default async function handler(req, res) {
           const estSecs = list.length * 8;
           const estStr  = estSecs < 60 ? `~${estSecs}s` : `~${Math.ceil(estSecs/60)} min`;
           await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''} (${estStr})...\nEach result will appear as it's ready.`);
+          // Respond 200 NOW — Telegram stops waiting, but Vercel keeps the function alive
+          res.status(200).end();
 
           const onResult = async (result) => {
             await sendTelegram(chatId, formatStockBlock(result));
@@ -185,10 +187,10 @@ export default async function handler(req, res) {
 
   } catch(e) {
     console.error('Webhook error:', e);
-    await sendTelegram(chatId, `❌ Something went wrong: ${e.message}`);
-    await releaseLock(chatId); // release lock on unexpected error
+    try { await sendTelegram(chatId, `❌ Something went wrong: ${e.message}`); } catch(_) {}
+    await releaseLock(chatId);
   }
 
-  // For non-briefing commands, respond after work is done
-  if (!isBriefing) res.status(200).end();
+  // Send 200 if not already sent (briefing sends it earlier)
+  if (!res.headersSent) res.status(200).end();
 }
