@@ -34,10 +34,12 @@ export default async function handler(req, res) {
   const cmd    = parts[0]?.toLowerCase().split('@')[0];
   const arg    = parts[1]?.toUpperCase();
 
-  // Always do all work first, then respond 200 at the end.
-  // Vercel functions stay alive until res.end() is called.
-  // For /briefing (long-running), we respond 200 AFTER sending the first
-  // Telegram message so Telegram stops waiting, but Vercel keeps running.
+  // Flush 200 headers immediately so Telegram stops waiting (prevents retries).
+  // Vercel keeps the function alive until res.end() is called at the bottom.
+  res.status(200);
+  res.setHeader('Content-Type', 'application/json');
+  res.flushHeaders(); // sends headers now, body/end comes later
+
   try {
     await registerUser(chatId, from);
   } catch(e) { console.error('registerUser error:', e.message); }
@@ -118,35 +120,27 @@ export default async function handler(req, res) {
       if (list.length === 0) {
         await sendTelegram(chatId, `⚠️ Your watchlist is empty.\n\nAdd stocks with /add AAPL`);
       } else {
-        // ── Redis lock — prevent duplicate runs from Telegram retries ──
         const locked = await acquireLock(chatId);
         console.log('BRIEFING lock acquired:', locked, 'chatId:', chatId);
         if (!locked) {
-          await sendTelegram(chatId, `⏳ A briefing is already running. Please wait for it to finish.\n\nIf stuck, send /unlock to reset.`);
-          return res.status(200).end();
-        }
-
-        try {
-          const estSecs = list.length * 8;
-          const estStr  = estSecs < 60 ? `~${estSecs}s` : `~${Math.ceil(estSecs/60)} min`;
-          await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''} (${estStr})...\nEach result will appear as it's ready.`);
-
-          // Fire-and-forget to separate long-running function
-          // Use a short timeout so webhook doesn't wait — run-briefing runs independently
-          const host = process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}`
-            : 'https://apex-stocks.vercel.app';
-          fetch(`${host}/api/run-briefing`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chatId }),
-            signal: AbortSignal.timeout(500), // don't wait — fire and forget
-          }).catch(() => {}); // ignore timeout/errors — it's running independently
-
-        } catch(e) {
-          console.error('briefing launch error:', e.message);
-          await sendTelegram(chatId, `❌ Failed to start briefing: ${e.message}`);
-          await releaseLock(chatId);
+          await sendTelegram(chatId, `⏳ A briefing is already running. If stuck, send /unlock to reset.`);
+        } else {
+          try {
+            await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''}...\nResults will appear one by one.`);
+            console.log('BRIEFING starting:', list.join(','));
+            const onResult = async (result) => {
+              console.log('BRIEFING result:', result.ticker, result.signal);
+              await sendTelegram(chatId, formatStockBlock(result));
+            };
+            const { footer } = await runAnalysis(list, onResult);
+            await sendTelegram(chatId, footer);
+            console.log('BRIEFING complete');
+          } catch(e) {
+            console.error('BRIEFING error:', e.message);
+            await sendTelegram(chatId, `❌ Briefing failed: ${e.message}`);
+          } finally {
+            await releaseLock(chatId);
+          }
         }
       }
 
@@ -197,6 +191,5 @@ export default async function handler(req, res) {
     await releaseLock(chatId);
   }
 
-  // Send 200 if not already sent (briefing sends it earlier)
-  if (!res.headersSent) res.status(200).end();
+  res.end(JSON.stringify({ ok: true }));
 }

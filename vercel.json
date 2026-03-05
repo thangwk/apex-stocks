@@ -1,5 +1,10 @@
 {
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/$1" }],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    }
+  ],
   "crons": [
     {
       "path": "/api/cron-briefing",
@@ -10,9 +15,26 @@
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
-        { "key": "Pragma", "value": "no-cache" }
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/telegram-webhook.js": {
+      "maxDuration": 300
+    },
+    "api/run-briefing.js": {
+      "maxDuration": 300
+    },
+    "api/cron-briefing.js": {
+      "maxDuration": 300
+    }
+  }
 }
