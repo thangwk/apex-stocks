@@ -33,8 +33,10 @@ export default async function handler(req, res) {
   const cmd    = parts[0]?.toLowerCase().split('@')[0];
   const arg    = parts[1]?.toUpperCase();
 
-  // ── Respond 200 to Telegram IMMEDIATELY — prevents all retries ──
-  res.status(200).end();
+  // For /briefing (long-running), respond 200 immediately then work async
+  // For all other commands, do work first then respond 200 — Vercel won't kill mid-work
+  const isBriefing = cmd === '/briefing';
+  if (isBriefing) res.status(200).end();
 
   // Register/update user profile on every message
   await registerUser(chatId, from);
@@ -180,4 +182,7 @@ export default async function handler(req, res) {
     await sendTelegram(chatId, `❌ Something went wrong: ${e.message}`);
     await releaseLock(chatId); // release lock on unexpected error
   }
+
+  // For non-briefing commands, respond after work is done
+  if (!isBriefing) res.status(200).end();
 }
