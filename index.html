@@ -1633,18 +1633,28 @@ window.addEventListener('resize', () => { if (candleData.length) drawChart(candl
 let watchlist = JSON.parse(localStorage.getItem('apex_watchlist') || '[]');
 let wlRefreshTimer = null;
 
-// ── On load: sync watchlist FROM Redis so Telegram additions appear ──
+// ── On load: Redis is master — always restore from it ──────────────
 async function syncWatchlistFromRedis() {
   try {
     const r    = await fetch('/api/watchlist-load');
     const data = await r.json();
     const redisTickers = data.tickers || [];
 
-    // Add any tickers from Redis that aren't in local watchlist
+    // If Redis is empty but localStorage has stocks → push local up to Redis
+    if (redisTickers.length === 0 && watchlist.length > 0) {
+      await syncTickersToRedis();
+      return; // keep local as-is
+    }
+
+    // If Redis is empty and local is empty → nothing to do
+    if (redisTickers.length === 0) return;
+
+    // Redis has data — merge: add missing, remove deleted-via-Telegram
     let changed = false;
+
+    // Add tickers in Redis not in local
     for (const ticker of redisTickers) {
       if (!watchlist.find(w => w.ticker === ticker)) {
-        // Fetch basic info for this new ticker
         try {
           const [qr, pr] = await Promise.all([
             fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}`),
@@ -1665,19 +1675,30 @@ async function syncWatchlistFromRedis() {
       }
     }
 
-    // Remove tickers from local that were removed via Telegram
-    const before = watchlist.length;
-    watchlist = watchlist.filter(w => redisTickers.includes(w.ticker));
-    if (watchlist.length !== before) changed = true;
+    // Only remove locals if Redis has tickers AND they differ
+    // Never remove if Redis returned fewer tickers than local (could be partial failure)
+    if (redisTickers.length >= watchlist.length * 0.5) {
+      const before = watchlist.length;
+      watchlist = watchlist.filter(w => redisTickers.includes(w.ticker));
+      if (watchlist.length !== before) changed = true;
+    }
 
     if (changed) {
       localStorage.setItem('apex_watchlist', JSON.stringify(watchlist));
       renderWatchlist();
-      if (watchlist.length > 0) document.getElementById('wlPanel').classList.add('open');
-      showWlNotif('Watchlist synced from Telegram ✓', 'buy');
+      if (watchlist.length > 0) {
+        document.getElementById('wlPanel').classList.add('open');
+        document.body.classList.add('wl-open');
+      }
+      showWlNotif('Watchlist synced ✓', 'buy');
+    } else if (watchlist.length === 0 && redisTickers.length > 0) {
+      // Edge case: local was empty but Redis has tickers — force re-render
+      renderWatchlist();
     }
+
   } catch(e) {
-    console.warn('Redis sync failed:', e.message);
+    // Never wipe on error — just keep whatever is in localStorage
+    console.warn('Redis sync failed, keeping local watchlist:', e.message);
   }
 }
 
@@ -2006,14 +2027,17 @@ function requestNotifPermission() {
 }
 
 // Init watchlist after DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   renderWatchlist();
   if (watchlist.length > 0) {
     startWlRefresh();
     requestNotifPermission();
     document.getElementById('wlPanel').classList.add('open');
     document.body.classList.add('wl-open');
+    // Always push local stocks to Redis first — prevents Redis from being empty after deploys
+    await syncTickersToRedis();
   }
+  // Then pull Redis (picks up any Telegram additions/removals)
   syncWatchlistFromRedis();
 });
 
