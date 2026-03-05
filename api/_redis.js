@@ -10,31 +10,48 @@ async function getClient() {
   return client;
 }
 
-// ── Per-user watchlist keys ──────────────────────────────────────
+// ── Per-user keys ────────────────────────────────────────────────
 // apex:watchlist:<chatId>  →  ["AAPL","TSLA"]
-// apex:users               →  ["111","222","333"]  (all known chat IDs)
+// apex:users               →  ["111","222"]   (all chat IDs)
+// apex:user:<chatId>       →  { chatId, username, firstName, lastSeen }
 
-function userKey(chatId) {
-  return `apex:watchlist:${chatId}`;
-}
+function userKey(chatId)    { return `apex:watchlist:${chatId}`; }
+function profileKey(chatId) { return `apex:user:${chatId}`; }
 
-// Get all registered user chat IDs
 export async function getAllUsers() {
   const redis = await getClient();
   const data  = await redis.get('apex:users');
   return data ? JSON.parse(data) : [];
 }
 
-async function registerUser(chatId) {
+export async function getUserProfile(chatId) {
   const redis = await getClient();
+  const data  = await redis.get(profileKey(chatId));
+  return data ? JSON.parse(data) : null;
+}
+
+export async function registerUser(chatId, msgFrom) {
+  const redis = await getClient();
+
+  // Track chat ID in users list
   const users = await getAllUsers();
   if (!users.includes(chatId)) {
     users.push(chatId);
     await redis.set('apex:users', JSON.stringify(users));
   }
+
+  // Store/update user profile
+  const profile = {
+    chatId,
+    username:  msgFrom?.username  || null,
+    firstName: msgFrom?.first_name || null,
+    lastName:  msgFrom?.last_name  || null,
+    lastSeen:  new Date().toISOString(),
+  };
+  await redis.set(profileKey(chatId), JSON.stringify(profile));
 }
 
-// ── Per-user CRUD ────────────────────────────────────────────────
+// ── Per-user watchlist CRUD ──────────────────────────────────────
 export async function getWatchlist(chatId) {
   const redis = await getClient();
   const data  = await redis.get(userKey(chatId));
@@ -44,7 +61,6 @@ export async function getWatchlist(chatId) {
 export async function saveWatchlist(chatId, tickers) {
   const redis = await getClient();
   await redis.set(userKey(chatId), JSON.stringify(tickers));
-  await registerUser(chatId); // ensure user is tracked for cron
 }
 
 export async function addTicker(chatId, ticker) {

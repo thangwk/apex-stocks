@@ -1,5 +1,7 @@
-import { getWatchlist, addTicker, removeTicker, clearWatchlist } from './_redis.js';
+import { getWatchlist, addTicker, removeTicker, clearWatchlist, registerUser, getAllUsers, getUserProfile } from './_redis.js';
 import { runAnalysis, sendTelegram } from './_analysis.js';
+
+const OWNER_ID = process.env.TELEGRAM_CHAT_ID;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -8,10 +10,14 @@ export default async function handler(req, res) {
   if (!msg)  return res.status(200).end();
 
   const chatId = msg.chat.id.toString();
+  const from   = msg.from || {};
   const text   = (msg.text || '').trim();
   const parts  = text.split(/\s+/);
   const cmd    = parts[0]?.toLowerCase().split('@')[0];
   const arg    = parts[1]?.toUpperCase();
+
+  // Register/update user profile on every message
+  await registerUser(chatId, from);
 
   try {
     if (cmd === '/start' || cmd === '/help') {
@@ -85,6 +91,37 @@ export default async function handler(req, res) {
     } else if (cmd === '/clear') {
       await clearWatchlist(chatId);
       await sendTelegram(chatId, '🗑 Your watchlist has been cleared.');
+
+    } else if (cmd === '/users') {
+      // Admin only
+      if (chatId !== OWNER_ID) {
+        await sendTelegram(chatId, `❌ Not authorised.`);
+      } else {
+        const userIds = await getAllUsers();
+        if (userIds.length === 0) {
+          await sendTelegram(chatId, '👥 No users yet.');
+        } else {
+          const lines = await Promise.all(userIds.map(async (id) => {
+            const profile  = await getUserProfile(id);
+            const tickers  = await getWatchlist(id);
+            const name     = profile?.username
+              ? `@${profile.username}`
+              : profile?.firstName
+              ? profile.firstName + (profile.lastName ? ' ' + profile.lastName : '')
+              : `User ${id}`;
+            const you      = id === OWNER_ID ? ' 👑' : '';
+            const stocks   = tickers.length > 0 ? tickers.join(', ') : 'empty';
+            const lastSeen = profile?.lastSeen
+              ? new Date(profile.lastSeen).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+              : 'unknown';
+            return `• <b>${name}</b>${you}\n  Watchlist: ${stocks}\n  Last seen: ${lastSeen}`;
+          }));
+
+          await sendTelegram(chatId,
+            `👥 <b>APEX Users (${userIds.length})</b>\n\n${lines.join('\n\n')}`
+          );
+        }
+      }
 
     } else {
       await sendTelegram(chatId, `❓ Unknown command. Send /help to see available commands.`);
