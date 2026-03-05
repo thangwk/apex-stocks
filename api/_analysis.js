@@ -408,54 +408,59 @@ export async function fetchFMP(symbol) {
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
-export async function runAnalysis(tickers) {
+// Twelve Data free tier = 8 calls/minute
+// Each stock needs up to 2 Twelve Data calls: quote + candles
+// So max 4 stocks per batch to stay safely under limit
+const BATCH_SIZE = 4;
+const BATCH_DELAY_MS = 62000; // 62 seconds between batches
+
+async function fetchWithTwelveDataLimit(tickers, onProgress) {
   const results = [];
 
-  // Twelve Data free tier = 8 calls/min
-  // We fetch candles serially with a delay when cache misses occur
-  // Other APIs (Finnhub, FMP) are not rate-limited here
+  // Split into batches of 4
+  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+    const batch = tickers.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(tickers.length / BATCH_SIZE);
 
-  // Step 1: fetch candles serially with rate limit protection
-  const candleMap = {};
-  for (const ticker of tickers) {
-    try {
-      const { getCache } = await import('./_redis.js');
-      const cached = await getCache('candles', ticker);
-      if (cached) {
-        candleMap[ticker] = cached; // cache hit — no API call, no delay needed
-      } else {
-        candleMap[ticker] = await fetchCandles(ticker); // API call
-        await delay(8000); // wait 8s before next Twelve Data call (max ~7/min, safely under 8)
+    if (onProgress && i > 0) {
+      await onProgress(`⏳ Batch ${batchNum}/${totalBatches} — waiting for rate limit reset...`);
+    }
+
+    // Process all stocks in batch in parallel (each batch ≤ 4 stocks = ≤ 8 Twelve Data calls)
+    const batchResults = await Promise.all(batch.map(async ticker => {
+      try {
+        const [quote, candles, metrics, profile, fmp, targets] = await Promise.all([
+          fetchQuote(ticker),
+          fetchCandles(ticker),
+          fetchFundamentals(ticker),
+          fetchProfile(ticker),
+          fetchFMP(ticker),
+          fetchTargets(ticker),
+        ]);
+        if (!quote.c || !candles) return { ticker, signal:'ERROR', error:'No data' };
+        const analysis = analyzeCandles(candles, quote.c);
+        const chg      = ((quote.c - quote.pc) / quote.pc * 100);
+        const iv       = calcIV(metrics, profile?.finnhubIndustry || '', fmp, targets);
+        return { ticker, price:quote.c, change:chg, iv, fmp, targets, ...analysis };
+      } catch(e) {
+        return { ticker, signal:'ERROR', error:e.message };
       }
-    } catch(e) {
-      candleMap[ticker] = null;
+    }));
+
+    results.push(...batchResults);
+
+    // Wait 62s before next batch — but not after the last one
+    if (i + BATCH_SIZE < tickers.length) {
+      await delay(BATCH_DELAY_MS);
     }
   }
 
-  // Step 2: fetch all other data in parallel per ticker (Finnhub/FMP — no rate issue)
-  for (const ticker of tickers) {
-    try {
-      const [quote, metrics, profile, fmp, targets] = await Promise.all([
-        fetchQuote(ticker),
-        fetchFundamentals(ticker),
-        fetchProfile(ticker),
-        fetchFMP(ticker),
-        fetchTargets(ticker),
-      ]);
+  return results;
+}
 
-      const candles = candleMap[ticker];
-      if (!quote.c || !candles) { results.push({ ticker, signal:'ERROR', error:'No data' }); continue; }
-
-      const analysis = analyzeCandles(candles, quote.c);
-      const chg      = ((quote.c - quote.pc) / quote.pc * 100);
-      const iv       = calcIV(metrics, profile?.finnhubIndustry || '', fmp, targets);
-
-      results.push({ ticker, price:quote.c, change:chg, iv, fmp, targets, ...analysis });
-    } catch(e) {
-      results.push({ ticker, signal:'ERROR', error:e.message });
-    }
-  }
-
+export async function runAnalysis(tickers, onProgress) {
+  const results = await fetchWithTwelveDataLimit(tickers, onProgress);
   const blocks  = results.map(formatStockBlock);
   const message = `📊 <b>APEX BRIEFING</b>\n${new Date().toDateString()}\n\n${blocks.join('\n\n─────────────\n\n')}\n\n🌐 <a href="https://apex-stocks.vercel.app">Open APEX Web App</a>`;
   return { results, message };
