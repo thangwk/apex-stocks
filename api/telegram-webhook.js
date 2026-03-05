@@ -123,7 +123,7 @@ export default async function handler(req, res) {
         console.log('BRIEFING lock acquired:', locked, 'chatId:', chatId);
         if (!locked) {
           await sendTelegram(chatId, `⏳ A briefing is already running. Please wait for it to finish.\n\nIf stuck, send /unlock to reset.`);
-          return;
+          return res.status(200).end();
         }
 
         try {
