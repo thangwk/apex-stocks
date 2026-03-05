@@ -517,7 +517,10 @@
     </div>
 
     <div class="sb-block">
-      <div class="hero-ticker" id="heroTicker">—</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div class="hero-ticker" id="heroTicker">—</div>
+        <div id="heroSectorTag" style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--accent);letter-spacing:1px;white-space:nowrap;display:none"></div>
+      </div>
       <div class="hero-name"   id="heroName">Enter a ticker to begin</div>
       <div class="hero-price-row">
         <div class="hero-price" id="heroPrice">—</div>
@@ -552,7 +555,10 @@
       </div>
       <div class="bar-track"><div class="bar-fill" id="ivFill" style="width:0%"></div></div>
       <div id="ivMOS" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--gold);margin-top:6px;letter-spacing:1px;">—</div>
-      <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px" id="ivConf">—</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <div id="ivSectorTag" style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--accent);letter-spacing:1px;display:none"></div>
+        <div id="ivConf" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:0.5px">—</div>
+      </div>
       <div id="ivBreakdown" style="margin-top:10px"></div>
     </div>
 
@@ -1067,13 +1073,25 @@ function renderIV(price, mid, lo, hi, pool) {
   }
   fill.style.width = Math.min(Math.abs(marginMid) * 2, 100) + '%';
 
-  // Confidence + industry
+  // Confidence + sector tag
   const conf = pool.length >= 3 ? 'HIGH' : pool.length === 2 ? 'MEDIUM' : 'LOW';
   const industryLabel = (arguments[5] || '').toUpperCase() || 'MARKET';
   const sectorPELabel = arguments[6] || 18;
+
+  // Sector tag chip — show next to ticker AND in IV section
+  const sectorTag = document.getElementById('ivSectorTag');
+  if (sectorTag) {
+    sectorTag.textContent = industryLabel + ' · P/E ' + sectorPELabel + '×';
+    sectorTag.style.display = 'inline-block';
+  }
+  const heroSectorTag = document.getElementById('heroSectorTag');
+  if (heroSectorTag) {
+    heroSectorTag.textContent = industryLabel;
+    heroSectorTag.style.display = 'inline-block';
+  }
+
   document.getElementById('ivConf').textContent =
-    conf + ' CONFIDENCE · ' + pool.length + ' METHOD' + (pool.length > 1 ? 'S' : '') +
-    ' · ' + industryLabel + ' · SECTOR P/E ' + sectorPELabel + '×';
+    conf + ' CONFIDENCE · ' + pool.length + ' METHOD' + (pool.length > 1 ? 'S' : '');
 
   // Method breakdown table
   const breakdown = document.getElementById('ivBreakdown');
