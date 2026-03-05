@@ -24,6 +24,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const msg = req.body?.message;
+  console.log('WEBHOOK body keys:', Object.keys(req.body || {}), 'msg:', !!msg, 'text:', msg?.text);
   if (!msg) return res.status(200).end();
 
   const chatId = msg.chat.id.toString();
@@ -119,8 +120,9 @@ export default async function handler(req, res) {
       } else {
         // ── Redis lock — prevent duplicate runs from Telegram retries ──
         const locked = await acquireLock(chatId);
+        console.log('BRIEFING lock acquired:', locked, 'chatId:', chatId);
         if (!locked) {
-          await sendTelegram(chatId, `⏳ A briefing is already running. Please wait for it to finish.`);
+          await sendTelegram(chatId, `⏳ A briefing is already running. Please wait for it to finish.\n\nIf stuck, send /unlock to reset.`);
           return;
         }
 
@@ -139,6 +141,10 @@ export default async function handler(req, res) {
           await releaseLock(chatId); // always release, even if analysis throws
         }
       }
+
+    } else if (cmd === '/unlock') {
+      await releaseLock(chatId);
+      await sendTelegram(chatId, `🔓 Briefing lock cleared. You can now run /briefing again.`);
 
     } else if (cmd === '/clear') {
       await clearWatchlist(chatId);
