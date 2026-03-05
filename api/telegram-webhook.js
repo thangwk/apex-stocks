@@ -1,5 +1,5 @@
 import { getWatchlist, addTicker, removeTicker, clearWatchlist, registerUser, getAllUsers, getUserProfile } from './_redis.js';
-import { runAnalysis, sendTelegram } from './_analysis.js';
+import { runAnalysis, sendTelegram, formatStockBlock } from './_analysis.js';
 
 const OWNER_ID = process.env.TELEGRAM_CHAT_ID;
 
@@ -95,13 +95,16 @@ export default async function handler(req, res) {
       if (list.length === 0) {
         await sendTelegram(chatId, `⚠️ Your watchlist is empty.\n\nAdd stocks with /add AAPL`);
       } else {
-        const batches = Math.ceil(list.length / 4);
-        const estMins = batches === 1 ? '~15 sec' : `~${batches} min`;
-        await sendTelegram(chatId, `⏳ Analysing ${list.length} stock(s) in ${batches} batch${batches>1?'es':''} (${estMins})...\n\nStocks are processed in groups of 4 to stay within API limits.`);
+        const estSecs = list.length * 8;
+        const estStr  = estSecs < 60 ? `~${estSecs}s` : `~${Math.ceil(estSecs/60)} min`;
+        await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''} (${estStr})...\nEach result will appear as it's ready.`);
 
-        const onProgress = async (msg) => { await sendTelegram(chatId, msg); };
-        const { message } = await runAnalysis(list, onProgress);
-        await sendTelegram(chatId, message);
+        const onResult = async (result) => {
+          await sendTelegram(chatId, formatStockBlock(result));
+        };
+
+        const { footer } = await runAnalysis(list, onResult);
+        await sendTelegram(chatId, footer);
       }
 
     } else if (cmd === '/clear') {
