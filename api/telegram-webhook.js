@@ -130,17 +130,23 @@ export default async function handler(req, res) {
           const estSecs = list.length * 8;
           const estStr  = estSecs < 60 ? `~${estSecs}s` : `~${Math.ceil(estSecs/60)} min`;
           await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''} (${estStr})...\nEach result will appear as it's ready.`);
-          // Respond 200 NOW — Telegram stops waiting, but Vercel keeps the function alive
-          res.status(200).end();
 
-          const onResult = async (result) => {
-            await sendTelegram(chatId, formatStockBlock(result));
-          };
+          // Fire-and-forget to separate long-running function
+          // Use a short timeout so webhook doesn't wait — run-briefing runs independently
+          const host = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : 'https://apex-stocks.vercel.app';
+          fetch(`${host}/api/run-briefing`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId }),
+            signal: AbortSignal.timeout(500), // don't wait — fire and forget
+          }).catch(() => {}); // ignore timeout/errors — it's running independently
 
-          const { footer } = await runAnalysis(list, onResult);
-          await sendTelegram(chatId, footer);
-        } finally {
-          await releaseLock(chatId); // always release, even if analysis throws
+        } catch(e) {
+          console.error('briefing launch error:', e.message);
+          await sendTelegram(chatId, `❌ Failed to start briefing: ${e.message}`);
+          await releaseLock(chatId);
         }
       }
 
