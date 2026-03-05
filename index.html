@@ -263,6 +263,7 @@
     background:var(--bg2); border-left:1px solid var(--border);
     display:flex; flex-direction:column; z-index:150;
     transform:translateX(100%); transition:transform .3s ease;
+    overflow:hidden;
   }
   .wl-panel.open { transform:translateX(0); }
   .wl-header {
@@ -285,7 +286,7 @@
     padding:8px 14px; font-weight:800; font-size:11px; cursor:pointer; letter-spacing:1px;
   }
   .wl-add-btn:hover { opacity:.85; }
-  .wl-list { flex:1; overflow-y:auto; padding:8px; }
+  .wl-list { flex:1; overflow-y:auto; padding:8px; min-height:0; }
   .wl-empty { text-align:center; padding:40px 16px; font-family:'Space Mono',monospace; font-size:11px; color:var(--muted); line-height:1.8; }
   .wl-item {
     background:var(--bg3); border:1px solid var(--border); border-radius:8px;
@@ -315,7 +316,7 @@
   }
   .wl-item:hover .wl-remove { opacity:1; }
   .wl-remove:hover { color:var(--bear); }
-  .wl-footer { padding:10px 12px; border-top:1px solid var(--border); font-family:'Space Mono',monospace; font-size:9px; color:var(--muted); display:flex; justify-content:space-between; }
+  .wl-footer { padding:12px; border-top:2px solid var(--border); font-family:'Space Mono',monospace; font-size:9px; color:var(--muted); display:flex; justify-content:space-between; align-items:center; background:var(--bg3); flex-shrink:0; }
   .wl-refresh { background:none; border:1px solid var(--border); color:var(--accent); border-radius:4px; padding:4px 10px; font-size:9px; font-family:'Space Mono',monospace; cursor:pointer; letter-spacing:1px; }
   .wl-refresh:hover { background:rgba(0,212,255,.08); }
 
@@ -1380,32 +1381,102 @@ async function addToWatchlist() {
     showWlNotif(`${ticker} is already in your watchlist`, 'hold'); return;
   }
   input.value = '';
+  showWlNotif(`Adding ${ticker}...`, 'hold');
 
-  // Fetch basic quote to verify + get initial price
   try {
-    const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}`);
-    const q = await r.json();
+    const [qr, pr] = await Promise.all([
+      fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}`),
+      fetch(`/api/profile?symbol=${encodeURIComponent(ticker)}`),
+    ]);
+    const q = await qr.json();
+    const p = await pr.json();
     if (!q.c || q.c === 0) { showWlNotif(`${ticker} not found`, 'sell'); return; }
-
-    const rp = await fetch(`/api/profile?symbol=${encodeURIComponent(ticker)}`);
-    const p  = await rp.json();
 
     watchlist.push({
       ticker,
-      name: p.name || ticker,
-      price: q.c,
+      name:      p.name || ticker,
+      price:     q.c,
       prevClose: q.pc,
-      addedAt: Date.now(),
-      alertBuy:  null,
-      alertSell: null,
+      signal:    '—',
+      reasons:   [],
+      support:   null,
+      resist:    null,
+      rsi:       null,
+      addedAt:   Date.now(),
     });
     saveWatchlist();
     renderWatchlist();
-    showWlNotif(`${ticker} added to watchlist ✓`, 'buy');
+    showWlNotif(`${ticker} added — analysing...`, 'buy');
     startWlRefresh();
+
+    // Auto-analyze immediately after adding
+    await analyzeWatchlistItem(ticker);
+    renderWatchlist();
   } catch(e) {
     showWlNotif(`Failed to add ${ticker}`, 'sell');
   }
+}
+
+async function analyzeWatchlistItem(ticker) {
+  try {
+    const r = await fetch('/api/watchlist-analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers: [ticker] }),
+    });
+    const data = await r.json();
+    const result = data.results?.[0];
+    if (!result || result.signal === 'ERROR') return;
+
+    const w = watchlist.find(x => x.ticker === ticker);
+    if (w) {
+      w.signal  = result.signal;
+      w.reasons = result.reasons;
+      w.support = result.support;
+      w.resist  = result.resist;
+      w.rsi     = result.rsi;
+      saveWatchlist();
+    }
+  } catch(e) {
+    console.warn('Auto-analyze failed for', ticker, e.message);
+  }
+}
+
+async function sendBriefingNow() {
+  if (watchlist.length === 0) { showWlNotif('Add stocks to your watchlist first', 'hold'); return; }
+  const btn = document.getElementById('wlBriefBtn');
+  btn.textContent = 'SENDING...';
+  btn.disabled = true;
+
+  try {
+    const tickers = watchlist.map(w => w.ticker);
+    const r = await fetch('/api/watchlist-analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers }),
+    });
+    const data = await r.json();
+
+    // Update local signals
+    data.results?.forEach(result => {
+      const w = watchlist.find(x => x.ticker === result.ticker);
+      if (w && result.signal !== 'ERROR') {
+        w.signal  = result.signal;
+        w.reasons = result.reasons;
+        w.support = result.support;
+        w.resist  = result.resist;
+        w.rsi     = result.rsi;
+        if (result.price) { w.price = result.price; w.prevClose = result.price / (1 + result.change/100); }
+      }
+    });
+    saveWatchlist();
+    renderWatchlist();
+    showWlNotif('📱 Briefing sent to Telegram!', 'buy');
+  } catch(e) {
+    showWlNotif('Failed: ' + e.message, 'sell');
+  }
+  btn.textContent = '📊 SEND BRIEFING';
+  btn.disabled = false;
 }
 
 function removeFromWatchlist(ticker) {
@@ -1419,24 +1490,23 @@ function renderWatchlist() {
   const list = document.getElementById('wlList');
   updateWlBadge();
   if (watchlist.length === 0) {
-    list.innerHTML = `<div class="wl-empty">No stocks yet.<br>Add a ticker above<br>to start tracking.</div>`;
+    list.innerHTML = `<div class="wl-empty">No stocks yet.<br>Add a ticker above<br>to start tracking.<br><br>Signals update automatically<br>and are sent to Telegram.</div>`;
     return;
   }
 
   list.innerHTML = watchlist.map(w => {
-    const chg    = ((w.price - w.prevClose) / w.prevClose * 100);
+    const chg    = w.prevClose ? ((w.price - w.prevClose) / w.prevClose * 100) : 0;
     const bull   = chg >= 0;
     const chgStr = (bull ? '+' : '') + chg.toFixed(2) + '%';
+    const sig    = w.signal || '—';
 
-    // Signal: simple momentum signal based on price vs prev close
-    let sigHtml = '';
-    if (chg > 1.5)       sigHtml = `<span class="wl-sig buy">▲ BUY SIGNAL</span>`;
-    else if (chg < -1.5) sigHtml = `<span class="wl-sig sell">▼ SELL SIGNAL</span>`;
-    else                 sigHtml = `<span class="wl-sig hold">― HOLD</span>`;
+    const sigColor = sig === 'BUY' || sig === 'WATCH' ? 'buy' : sig === 'SELL' ? 'sell' : 'hold';
+    const sigEmoji = sig === 'BUY' ? '▲' : sig === 'SELL' ? '▼' : sig === 'WATCH' ? '◆' : '—';
 
-    // Alert indicators
-    if (w.alertBuy  && w.price <= w.alertBuy)  sigHtml += `<span class="wl-sig buy">🔔 BUY ALERT</span>`;
-    if (w.alertSell && w.price >= w.alertSell) sigHtml += `<span class="wl-sig sell">🔔 SELL ALERT</span>`;
+    const topReasons = (w.reasons || []).slice(0, 2).join(' · ') || 'Click to analyse';
+    const supportTxt = w.support ? `Support $${w.support.toFixed(2)}` : '';
+    const resistTxt  = w.resist  ? `Resist $${w.resist.toFixed(2)}`  : '';
+    const rsiTxt     = w.rsi     ? `RSI ${w.rsi.toFixed(1)}`         : '';
 
     return `
       <div class="wl-item" onclick="loadFromWatchlist('${w.ticker}')">
@@ -1451,21 +1521,18 @@ function renderWatchlist() {
             <div class="wl-chg ${bull ? 'bull' : 'bear'}">${chgStr}</div>
           </div>
         </div>
-        <div class="wl-signals">${sigHtml}</div>
-        <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
-          <input
-            type="number" placeholder="Buy alert $" value="${w.alertBuy || ''}"
-            onclick="event.stopPropagation()"
-            onchange="setAlert('${w.ticker}','buy',this.value)"
-            style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--bull);font-family:'Space Mono',monospace;font-size:10px;outline:none"
-          />
-          <input
-            type="number" placeholder="Sell alert $" value="${w.alertSell || ''}"
-            onclick="event.stopPropagation()"
-            onchange="setAlert('${w.ticker}','sell',this.value)"
-            style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--bear);font-family:'Space Mono',monospace;font-size:10px;outline:none"
-          />
+        <div class="wl-signals">
+          <span class="wl-sig ${sigColor}">${sigEmoji} ${sig}</span>
+          ${rsiTxt ? `<span class="wl-sig hold">${rsiTxt}</span>` : ''}
         </div>
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:6px;line-height:1.6">
+          ${topReasons}
+        </div>
+        ${supportTxt || resistTxt ? `
+        <div style="display:flex;gap:8px;margin-top:5px;font-family:'Space Mono',monospace;font-size:9px">
+          ${supportTxt ? `<span style="color:var(--bull)">${supportTxt}</span>` : ''}
+          ${resistTxt  ? `<span style="color:var(--bear)">${resistTxt}</span>`  : ''}
+        </div>` : ''}
       </div>`;
   }).join('');
 }
@@ -1480,13 +1547,10 @@ function setAlert(ticker, type, value) {
 }
 
 function updateWlBadge() {
-  const alerts = watchlist.filter(w =>
-    (w.alertBuy  && w.price <= w.alertBuy) ||
-    (w.alertSell && w.price >= w.alertSell)
-  ).length;
+  const buys = watchlist.filter(w => w.signal === 'BUY' || w.signal === 'WATCH').length;
   const badge = document.getElementById('wlBadge');
-  badge.textContent = alerts;
-  badge.style.display = alerts > 0 ? 'flex' : 'none';
+  badge.textContent = buys;
+  badge.style.display = buys > 0 ? 'flex' : 'none';
 }
 
 function loadFromWatchlist(ticker) {
@@ -1638,10 +1702,10 @@ document.getElementById('wlInputEl').addEventListener('keydown', e => {
   </div>
   <div class="wl-list" id="wlList"></div>
   <div class="wl-footer">
-    <span id="wlRefreshTime">Auto-refresh: 60s</span>
+    <span id="wlRefreshTime">Auto-briefing: 8AM daily</span>
     <div style="display:flex;gap:6px">
-      <button class="wl-refresh" id="wlTestBtn" onclick="testTelegramAlert()">📱 TEST ALERT</button>
-      <button class="wl-refresh" onclick="refreshWatchlistPrices()">↻ REFRESH</button>
+      <button class="wl-refresh" id="wlTestBtn" onclick="testTelegramAlert()">📱 TEST</button>
+      <button class="wl-refresh" id="wlBriefBtn" onclick="sendBriefingNow()">📊 SEND BRIEFING</button>
     </div>
   </div>
 </div>
