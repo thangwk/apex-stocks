@@ -1603,20 +1603,112 @@ function drawChart(data) {
   const crossV = g.append('line').attr('stroke','rgba(0,212,255,0.25)').attr('stroke-width',1).attr('stroke-dasharray','4,3').attr('y1',0).attr('y2',h).style('display','none');
   const crossH = g.append('line').attr('stroke','rgba(0,212,255,0.25)').attr('stroke-width',1).attr('stroke-dasharray','4,3').attr('x1',0).attr('x2',w).style('display','none');
 
+  // Price label on Y axis that follows crosshair
+  const priceLabel = g.append('g').style('display','none');
+  priceLabel.append('rect')
+    .attr('x', w + 2).attr('width', 58).attr('height', 16).attr('rx', 3)
+    .attr('fill', 'rgba(0,212,255,0.15)').attr('stroke', 'rgba(0,212,255,0.4)').attr('stroke-width', 1);
+  const priceLabelText = priceLabel.append('text')
+    .attr('x', w + 31).attr('y', 11)
+    .attr('text-anchor', 'middle').attr('fill', '#00d4ff')
+    .attr('font-size', '9px').attr('font-family', 'Space Mono, monospace').attr('font-weight', '700');
+
+  // Date label on X axis that follows crosshair
+  const dateLabel = g.append('g').style('display','none');
+  dateLabel.append('rect')
+    .attr('y', h + 2).attr('height', 16).attr('rx', 3)
+    .attr('fill', 'rgba(0,212,255,0.15)').attr('stroke', 'rgba(0,212,255,0.4)').attr('stroke-width', 1);
+  const dateLabelText = dateLabel.append('text')
+    .attr('y', h + 13)
+    .attr('text-anchor', 'middle').attr('fill', '#00d4ff')
+    .attr('font-size', '9px').attr('font-family', 'Space Mono, monospace');
+
+  // Floating OHLCV tooltip
+  const hoverTip = d3.select('#chart-wrap').append('div')
+    .style('position', 'absolute')
+    .style('background', 'rgba(8,12,18,0.97)')
+    .style('border', '1px solid rgba(0,212,255,0.35)')
+    .style('border-radius', '6px')
+    .style('padding', '9px 13px')
+    .style('font-family', 'Space Mono, monospace')
+    .style('font-size', '10px')
+    .style('color', '#ddeeff')
+    .style('pointer-events', 'none')
+    .style('display', 'none')
+    .style('z-index', '20')
+    .style('line-height', '1.7')
+    .style('min-width', '150px')
+    .style('box-shadow', '0 4px 20px rgba(0,0,0,0.6)');
+
   svg.on('mousemove', function(event) {
     const [mx, my] = d3.pointer(event, g.node());
+    if (mx < 0 || mx > w || my < 0 || my > h) {
+      crossV.style('display','none'); crossH.style('display','none');
+      priceLabel.style('display','none'); dateLabel.style('display','none');
+      hoverTip.style('display','none');
+      return;
+    }
     const idx = Math.max(0, Math.min(data.length - 1, Math.round(mx / (w / data.length))));
     const d   = data[idx];
     if (!d) return;
-    const cx = xScale(idx) + xScale.bandwidth() / 2;
+
+    const cx     = xScale(idx) + xScale.bandwidth() / 2;
+    const price  = yScale.invert(my);
+    const chg    = ((d.close - d.open) / d.open * 100);
+    const isUp   = d.close >= d.open;
+    const col    = isUp ? '#00e676' : '#ff4757';
+
+    // Crosshair lines
     crossV.style('display', null).attr('x1', cx).attr('x2', cx);
     crossH.style('display', null).attr('y1', my).attr('y2', my);
+
+    // Y-axis price label
+    priceLabel.style('display', null).attr('transform', `translate(0,${my - 8})`);
+    priceLabelText.text('$' + price.toFixed(2));
+
+    // X-axis date label
+    const labelW = 72;
+    dateLabel.style('display', null);
+    dateLabel.select('rect').attr('x', cx - labelW/2).attr('width', labelW);
+    dateLabelText.attr('x', cx).text(d.date);
+
+    // Update OHLCV bar at top
     document.getElementById('oO').textContent = '$' + d.open.toFixed(2);
     document.getElementById('oH').textContent = '$' + d.high.toFixed(2);
     document.getElementById('oL').textContent = '$' + d.low.toFixed(2);
     document.getElementById('oC').textContent = '$' + d.close.toFixed(2);
-    document.getElementById('oV').textContent = (d.volume / 1e6).toFixed(1) + 'M';
-  }).on('mouseleave', () => { crossV.style('display','none'); crossH.style('display','none'); });
+    document.getElementById('oV').textContent = d.volume >= 1e6
+      ? (d.volume/1e6).toFixed(2)+'M' : (d.volume/1e3).toFixed(0)+'K';
+
+    // Floating tooltip — flip to left if near right edge
+    const chartRect = document.getElementById('chart-wrap').getBoundingClientRect();
+    const tipX = event.offsetX + 16;
+    const flipLeft = tipX > chartRect.width - 180;
+
+    hoverTip
+      .style('display', 'block')
+      .style('left',  flipLeft ? (event.offsetX - 175) + 'px' : tipX + 'px')
+      .style('top',   (event.offsetY - 10) + 'px')
+      .html(`
+        <div style="color:${col};font-weight:700;font-size:11px;margin-bottom:5px;letter-spacing:1px">
+          ${d.date} &nbsp;<span style="font-size:9px">${chg >= 0 ? '▲' : '▼'} ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px">
+          <span style="color:#3d6a8a">O</span><span>$${d.open.toFixed(2)}</span>
+          <span style="color:#3d6a8a">H</span><span style="color:#00e676">$${d.high.toFixed(2)}</span>
+          <span style="color:#3d6a8a">L</span><span style="color:#ff4757">$${d.low.toFixed(2)}</span>
+          <span style="color:#3d6a8a">C</span><span style="color:${col};font-weight:700">$${d.close.toFixed(2)}</span>
+          <span style="color:#3d6a8a">V</span><span>${d.volume >= 1e6 ? (d.volume/1e6).toFixed(2)+'M' : (d.volume/1e3).toFixed(0)+'K'}</span>
+        </div>
+      `);
+
+  }).on('mouseleave', () => {
+    crossV.style('display','none');
+    crossH.style('display','none');
+    priceLabel.style('display','none');
+    dateLabel.style('display','none');
+    hoverTip.style('display','none');
+  });
 }
 
 // ── AI ANALYSIS ──
