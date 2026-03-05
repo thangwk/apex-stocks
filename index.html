@@ -1684,7 +1684,7 @@ let wlRefreshTimer = null;
 // ── On load: Redis is master — always restore from it ──────────────
 async function syncWatchlistFromRedis() {
   try {
-    const r    = await fetch('/api/watchlist-load');
+    const r    = await fetch('/api/watchlist');
     const data = await r.json();
     const redisTickers = data.tickers || [];
 
@@ -1754,7 +1754,7 @@ async function syncWatchlistFromRedis() {
 async function syncTickersToRedis() {
   try {
     const tickers = watchlist.map(w => w.ticker);
-    await fetch('/api/watchlist-sync', {
+    await fetch('/api/watchlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tickers }),
@@ -1824,8 +1824,8 @@ async function addToWatchlist() {
 
 async function analyzeWatchlistItem(ticker) {
   try {
-    const r = await fetch('/api/watchlist-analyze', {
-      method: 'POST',
+    const r = await fetch('/api/watchlist', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tickers: [ticker] }),
     });
@@ -1855,8 +1855,8 @@ async function sendBriefingNow() {
 
   try {
     const tickers = watchlist.map(w => w.ticker);
-    const r = await fetch('/api/watchlist-analyze', {
-      method: 'POST',
+    const r = await fetch('/api/watchlist', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tickers }),
     });
@@ -2023,7 +2023,7 @@ async function refreshWatchlistPrices() {
 
 async function sendTelegramAlert(message, type) {
   try {
-    const r = await fetch('/api/alert', {
+    const r = await fetch('/api/admin?action=alert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, type }),
@@ -2040,7 +2040,7 @@ async function testTelegramAlert() {
   btn.textContent = 'SENDING...';
   btn.disabled = true;
   try {
-    const r = await fetch('/api/alert', {
+    const r = await fetch('/api/admin?action=alert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
