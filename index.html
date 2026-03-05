@@ -1467,6 +1467,7 @@ async function syncWatchlistFromRedis() {
     if (changed) {
       localStorage.setItem('apex_watchlist', JSON.stringify(watchlist));
       renderWatchlist();
+      if (watchlist.length > 0) document.getElementById('wlPanel').classList.add('open');
       showWlNotif('Watchlist synced from Telegram ✓', 'buy');
     }
   } catch(e) {
@@ -1612,6 +1613,7 @@ function removeFromWatchlist(ticker) {
 
 function renderWatchlist() {
   const list = document.getElementById('wlList');
+  if (!list) return;
   updateWlBadge();
   if (watchlist.length === 0) {
     list.innerHTML = `<div class="wl-empty">No stocks yet.<br>Add a ticker above<br>to start tracking.<br><br>Signals update automatically<br>and are sent to Telegram.</div>`;
@@ -1671,9 +1673,10 @@ function setAlert(ticker, type, value) {
 }
 
 function updateWlBadge() {
-  const buys = watchlist.filter(w => w.signal === 'BUY' || w.signal === 'WATCH').length;
+  const buys  = watchlist.filter(w => w.signal === 'BUY' || w.signal === 'WATCH').length;
   const badge = document.getElementById('wlBadge');
-  badge.textContent = buys;
+  if (!badge) return;
+  badge.textContent  = buys;
   badge.style.display = buys > 0 ? 'flex' : 'none';
 }
 
@@ -1794,15 +1797,16 @@ function requestNotifPermission() {
   }
 }
 
-// Init watchlist on load
-renderWatchlist();
-if (watchlist.length > 0) {
-  startWlRefresh();
-  requestNotifPermission();
-}
-
-// Sync from Redis (picks up any Telegram additions/removals)
-syncWatchlistFromRedis();
+// Init watchlist after DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  renderWatchlist();
+  if (watchlist.length > 0) {
+    startWlRefresh();
+    requestNotifPermission();
+    document.getElementById('wlPanel').classList.add('open');
+  }
+  syncWatchlistFromRedis();
+});
 
 document.getElementById('wlInputEl').addEventListener('keydown', e => {
   if (e.key === 'Enter') addToWatchlist();
