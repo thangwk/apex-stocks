@@ -1365,8 +1365,23 @@ window.addEventListener('resize', () => { if (candleData.length) drawChart(candl
 let watchlist = JSON.parse(localStorage.getItem('apex_watchlist') || '[]');
 let wlRefreshTimer = null;
 
+// ── SYNC watchlist tickers to Redis (for Telegram + cron access) ──
+async function syncTickersToRedis() {
+  try {
+    const tickers = watchlist.map(w => w.ticker);
+    await fetch('/api/watchlist-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers }),
+    });
+  } catch(e) {
+    console.warn('Redis sync failed:', e.message);
+  }
+}
+
 function saveWatchlist() {
   localStorage.setItem('apex_watchlist', JSON.stringify(watchlist));
+  syncTickersToRedis(); // keep Redis in sync
 }
 
 function toggleWatchlist() {
