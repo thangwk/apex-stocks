@@ -5,14 +5,12 @@ export default async function handler(req, res) {
   const { symbol, tf } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
-  const outputMap = { compact: 30, full: 365 };
-  const outputsize = outputMap[tf] || 30;
-  const cacheKey = `candles_${tf || 'compact'}`;
-  const TTL_MS   = 6 * 60 * 60 * 1000; // 6 hours
+  const outputsize = tf === 'full' ? 365 : 60;
+  const TTL_MS     = 6 * 60 * 60 * 1000; // 6 hours
 
   try {
-    // Check cache first
-    const cached = await getCache(cacheKey, symbol);
+    // Use same cache key as _analysis.js fetchCandles — shared cache
+    const cached = await getCache('candles', symbol);
     if (cached) return res.status(200).json({ candles: cached, _cached: true });
 
     const r = await fetch(
@@ -21,7 +19,7 @@ export default async function handler(req, res) {
     const data = await r.json();
 
     if (data.status === 'error') return res.status(400).json({ error: data.message || 'Twelve Data error' });
-    if (!data.values || data.values.length === 0) return res.status(404).json({ error: 'No candle data found for this symbol.' });
+    if (!data.values?.length)    return res.status(404).json({ error: 'No candle data found.' });
 
     const candles = data.values.reverse().map(v => ({
       date:   v.datetime,
@@ -32,7 +30,7 @@ export default async function handler(req, res) {
       volume: parseInt(v.volume) || 0,
     }));
 
-    await setCache(cacheKey, symbol, candles, TTL_MS);
+    await setCache('candles', symbol, candles, TTL_MS);
     res.status(200).json({ candles });
   } catch (e) {
     res.status(500).json({ error: e.message });
