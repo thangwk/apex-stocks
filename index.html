@@ -868,8 +868,8 @@ async function loadCandles(ticker) {
   const sliced = fullCandleData.slice(-cfg.days);
   candleData = sliced;
   drawChart(candleData);
-  updateIndicators(candleData, lastFundamentals.quote);
-  updateLevels(candleData, lastFundamentals.quote);
+  updateIndicators(candleData, lastFundamentals?.quote);
+  updateLevels(candleData, lastFundamentals?.quote);
 }
 
 // ── UI UPDATERS ──
@@ -1284,6 +1284,7 @@ function renderIV(price, mid, lo, hi, mos, mosPct, pool, industry, sectorPE, tar
 
 
 function updateLevels(data, quote) {
+  if (!data?.length || !quote?.c) return;
   const closes = data.map(d => d.close).sort((a, b) => a - b);
   const p = quote.c;
   const below = closes.filter(x => x < p);
@@ -1304,6 +1305,7 @@ function updateLevels(data, quote) {
 
 // ── INDICATORS ──
 function updateIndicators(data, quote) {
+  if (!data?.length || !quote?.c) return;
   const closes = data.map(d => d.close);
   const price  = quote.c;
 
