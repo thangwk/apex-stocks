@@ -18,6 +18,7 @@ export default async function handler(req, res) {
       await sendTelegram(chatId,
         `👋 *Welcome to APEX Stock Bot*\n\n` +
         `Your personal stock watchlist & briefing service.\n\n` +
+        `🌐 *Web App:* https://apex-stocks.vercel.app\n\n` +
         `*Commands:*\n` +
         `/add AAPL — Add stock to your watchlist\n` +
         `/remove AAPL — Remove stock\n` +
