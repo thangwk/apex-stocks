@@ -280,18 +280,44 @@ function formatStockBlock(r) {
     `Support: $${r.support?.toFixed(2)} | Resist: $${r.resist?.toFixed(2)}`,
   ];
 
-  // IV block
+  // IV + recommendation block
   if (r.iv) {
-    const margin = ((r.iv.mid - r.price) / r.price * 100);
-    const verdict = margin > 15  ? '🟢 UNDERVALUED'
-      : margin > 5   ? '🟡 SLIGHT DISCOUNT'
-      : margin < -20 ? '🔴 OVERVALUED'
-      : margin < -8  ? '🟠 SLIGHT PREMIUM'
+    const price    = r.price;
+    const { mid, lo, hi, mos } = r.iv;
+    const margin   = ((mid - price) / price * 100);
+    const analystT = r.targets?.targetMean || mid;
+    const upside   = ((analystT - price) / price * 100);
+    const buyBelow = (mid * 0.88).toFixed(2);
+    const stopLoss = (price * 0.93).toFixed(2);
+
+    const verdict = margin > 10  ? '🟢 UNDERVALUED'
+      : margin > 3   ? '🟡 SLIGHT DISCOUNT'
+      : margin < -15 ? '🔴 OVERVALUED'
+      : margin < -5  ? '🟠 SLIGHT PREMIUM'
       : '⚪ FAIR VALUE';
-    lines.push(`\n📊 <b>Intrinsic Value</b>`);
-    lines.push(`Range: $${r.iv.lo.toFixed(0)} – $${r.iv.hi.toFixed(0)} | Mid: $${r.iv.mid.toFixed(0)}`);
+
+    let action, levels;
+    if (margin > 10) {
+      action = '▲ BUY';
+      levels = `▶ Enter now ~$${price.toFixed(2)} or scale below $${(mid*0.95).toFixed(2)}\n▶ Add on dips to $${buyBelow}\n▶ Stop loss: $${stopLoss}\n▶ Target: $${analystT.toFixed(2)} (+${upside.toFixed(1)}%)`;
+    } else if (margin > 3) {
+      action = '◆ WATCH';
+      levels = `▶ Buy on dip below $${(mid*0.95).toFixed(2)}\n▶ Ideal entry: $${buyBelow}\n▶ Stop loss: $${stopLoss}\n▶ Target: $${analystT.toFixed(2)} (+${upside.toFixed(1)}%)`;
+    } else if (margin < -15) {
+      action = '▼ AVOID';
+      levels = `▶ Do not buy at $${price.toFixed(2)}\n▶ Watch for entry at $${buyBelow}\n▶ Fair value zone: $${lo.toFixed(0)}–$${hi.toFixed(0)}`;
+    } else if (margin < -5) {
+      action = '⚠ CAUTION';
+      levels = `▶ Avoid adding at current price\n▶ Buy if falls to $${(mid*0.93).toFixed(2)}\n▶ Stop if holding: $${(price*0.96).toFixed(2)}`;
+    } else {
+      action = '— HOLD';
+      levels = `▶ Hold — fair value $${lo.toFixed(0)}–$${hi.toFixed(0)}\n▶ Add on dip to $${buyBelow}\n▶ Target: $${analystT.toFixed(2)} · Stop: $${stopLoss}`;
+    }
+
+    lines.push(`\n📊 <b>Valuation · ${action}</b>`);
+    lines.push(`IV Range: $${lo.toFixed(0)} – $${hi.toFixed(0)} | Mid: $${mid.toFixed(0)}`);
     lines.push(`${verdict} (${margin >= 0 ? '+' : ''}${margin.toFixed(1)}% vs price)`);
-    lines.push(`MOS Buy Zone: ≤$${r.iv.mos.toFixed(0)} (15% discount to mid)`);
+    lines.push(levels);
   }
 
   // FMP rating

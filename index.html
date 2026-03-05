@@ -570,9 +570,12 @@
         <div class="rec-head"><div class="rec-action hold" id="recAction">—</div></div>
         <div class="rec-body" id="recBody">Run analysis to see recommendation.</div>
         <div class="targets">
+          <div class="tgt"><div class="tgt-lbl">Buy Below</div><div class="tgt-val" id="tgtBuy" style="color:var(--bull)">—</div></div>
+          <div class="tgt"><div class="tgt-lbl">Price Target</div><div class="tgt-val" id="tgtPT" style="color:var(--accent)">—</div></div>
           <div class="tgt"><div class="tgt-lbl">Stop Loss</div><div class="tgt-val" id="tgtSL" style="color:var(--bear)">—</div></div>
-          <div class="tgt"><div class="tgt-lbl">Price Target</div><div class="tgt-val" id="tgtPT" style="color:var(--bull)">—</div></div>
+          <div class="tgt"><div class="tgt-lbl">Upside</div><div class="tgt-val" id="tgtUpside" style="color:var(--bull)">—</div></div>
         </div>
+        <div id="recLevels" style="margin-top:8px;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);line-height:1.8"></div>
       </div>
     </div>
 
@@ -1198,34 +1201,90 @@ function renderIV(price, mid, lo, hi, pool) {
       <div class="iv-row-desc">${x.desc}</div>`;
   }).join('');
 
-  // Recommendation
-  const sl = (price * 0.96).toFixed(2);
-  const pt = (mid * 0.97).toFixed(2);
-  document.getElementById('tgtSL').textContent = '$' + sl;
-  document.getElementById('tgtPT').textContent = '$' + pt;
+  // ── RECOMMENDATION ENGINE ────────────────────────────────────────
+  // Combine valuation margin with analyst target and technical signal
+  const analystTarget = pool.find(x => x.short === 'ANL')?.value || mid;
+
+  // Price targets: use analyst target if available, else IV mid
+  const priceTarget  = analystTarget > 0 ? analystTarget : mid;
+  const upside       = ((priceTarget - price) / price * 100);
+
+  // Buy zone: MOS 15% below IV mid, or support level
+  const buyBelow     = (mid * 0.88).toFixed(2);   // 12% discount to IV mid
+  const aggressiveBuy= (mid * 0.95).toFixed(2);   // 5% discount — for WATCH
+  const stopLoss     = (price * 0.93).toFixed(2); // 7% trailing stop
+  const tightStop    = (price * 0.96).toFixed(2); // 4% for near fair value
+
+  document.getElementById('tgtPT').textContent  = '$' + priceTarget.toFixed(2);
+  document.getElementById('tgtSL').textContent  = '$' + stopLoss;
+  document.getElementById('tgtUpside').textContent = (upside >= 0 ? '+' : '') + upside.toFixed(1) + '%';
+
   const recCard   = document.getElementById('recCard');
   const recAction = document.getElementById('recAction');
   const recBody   = document.getElementById('recBody');
+  const recLevels = document.getElementById('recLevels');
+  const tgtBuyEl  = document.getElementById('tgtBuy');
+
   if (marginMid > 10) {
-    recCard.className = 'rec-card buy'; recAction.className = 'rec-action buy';
-    recAction.textContent = 'BUY';
-    recBody.textContent = `Trading ${marginMid.toFixed(1)}% below fair value midpoint ($${mid.toFixed(2)}). Risk/reward favours a long entry.`;
+    // STRONG BUY
+    recCard.className  = 'rec-card buy';
+    recAction.className = 'rec-action buy';
+    recAction.textContent = '▲ BUY';
+    tgtBuyEl.textContent = '$' + buyBelow;
+    recBody.textContent = `${currentTicker} is trading ${marginMid.toFixed(1)}% below fair value ($${mid.toFixed(2)}). Strong risk/reward for a long entry.`;
+    recLevels.innerHTML =
+      `<span style="color:var(--bull)">▶ ENTER</span>: Current price ~$${price.toFixed(2)} or scale in below $${aggressiveBuy}<br>` +
+      `<span style="color:var(--bull)">▶ ADD</span>: On dips toward $${buyBelow} (12% MOS)<br>` +
+      `<span style="color:var(--bear)">▶ STOP</span>: Close below $${stopLoss} (7% stop)<br>` +
+      `<span style="color:var(--accent)">▶ TARGET</span>: $${priceTarget.toFixed(2)} (+${upside.toFixed(1)}%)`;
   } else if (marginMid > 3) {
-    recCard.className = 'rec-card buy'; recAction.className = 'rec-action buy';
-    recAction.textContent = 'WATCH';
-    recBody.textContent = `Slight discount to fair value. Consider scaling in on dips toward support.`;
+    // WATCH / ACCUMULATE
+    recCard.className  = 'rec-card buy';
+    recAction.className = 'rec-action buy';
+    recAction.textContent = '◆ WATCH';
+    tgtBuyEl.textContent = '$' + aggressiveBuy;
+    recBody.textContent = `Slight discount to fair value. Consider scaling in on pullbacks toward support.`;
+    recLevels.innerHTML =
+      `<span style="color:var(--bull)">▶ ENTER</span>: On dips below $${aggressiveBuy}<br>` +
+      `<span style="color:var(--bull)">▶ IDEAL BUY</span>: $${buyBelow} for full MOS<br>` +
+      `<span style="color:var(--bear)">▶ STOP</span>: Close below $${stopLoss}<br>` +
+      `<span style="color:var(--accent)">▶ TARGET</span>: $${priceTarget.toFixed(2)} (+${upside.toFixed(1)}%)`;
   } else if (marginMid < -15) {
-    recCard.className = 'rec-card sell'; recAction.className = 'rec-action sell';
-    recAction.textContent = 'SELL / HEDGE';
-    recBody.textContent = `Trading ${Math.abs(marginMid).toFixed(1)}% above fair value. Consider trimming or buying protective puts.`;
+    // SELL / AVOID
+    recCard.className  = 'rec-card sell';
+    recAction.className = 'rec-action sell';
+    recAction.textContent = '▼ AVOID';
+    tgtBuyEl.textContent = '$' + buyBelow;
+    recBody.textContent = `${currentTicker} trades ${Math.abs(marginMid).toFixed(1)}% above fair value. Poor risk/reward at current prices.`;
+    recLevels.innerHTML =
+      `<span style="color:var(--bear)">▶ AVOID</span>: Do not initiate new longs at $${price.toFixed(2)}<br>` +
+      `<span style="color:var(--bull)">▶ BUY IF FALLS TO</span>: $${buyBelow} (fair value zone)<br>` +
+      `<span style="color:var(--gold)">▶ WATCH LEVEL</span>: $${(mid * 0.97).toFixed(2)} (near IV mid)<br>` +
+      `<span style="color:var(--bear)">▶ IF HOLDING</span>: Stop at $${tightStop}`;
   } else if (marginMid < -5) {
-    recCard.className = 'rec-card sell'; recAction.className = 'rec-action sell';
-    recAction.textContent = 'CAUTION';
-    recBody.textContent = `Slight premium to fair value. Avoid chasing — wait for a pullback toward $${lo.toFixed(0)}–$${mid.toFixed(0)}.`;
+    // CAUTION / TRIM
+    recCard.className  = 'rec-card sell';
+    recAction.className = 'rec-action sell';
+    recAction.textContent = '⚠ CAUTION';
+    tgtBuyEl.textContent = '$' + (mid * 0.93).toFixed(2);
+    recBody.textContent = `Slight premium to fair value. Wait for a pullback before adding.`;
+    recLevels.innerHTML =
+      `<span style="color:var(--bear)">▶ AVOID ADDING</span>: Stretched above fair value<br>` +
+      `<span style="color:var(--bull)">▶ BUY IF FALLS TO</span>: $${(mid * 0.93).toFixed(2)}<br>` +
+      `<span style="color:var(--gold)">▶ FAIR VALUE</span>: $${lo.toFixed(0)} – $${hi.toFixed(0)}<br>` +
+      `<span style="color:var(--bear)">▶ IF HOLDING</span>: Stop at $${tightStop}`;
   } else {
-    recCard.className = 'rec-card hold'; recAction.className = 'rec-action hold';
-    recAction.textContent = 'HOLD';
-    recBody.textContent = `Trading within fair value range ($${lo.toFixed(0)}–$${hi.toFixed(0)}). Watch key levels for next move.`;
+    // HOLD / FAIR VALUE
+    recCard.className  = 'rec-card hold';
+    recAction.className = 'rec-action hold';
+    recAction.textContent = '— HOLD';
+    tgtBuyEl.textContent = '$' + buyBelow;
+    recBody.textContent = `Trading within fair value range. Hold existing positions and watch key levels.`;
+    recLevels.innerHTML =
+      `<span style="color:var(--gold)">▶ HOLD</span>: Fair value range $${lo.toFixed(0)} – $${hi.toFixed(0)}<br>` +
+      `<span style="color:var(--bull)">▶ ADD ON DIP TO</span>: $${buyBelow}<br>` +
+      `<span style="color:var(--accent)">▶ TARGET</span>: $${priceTarget.toFixed(2)} (+${upside.toFixed(1)}%)<br>` +
+      `<span style="color:var(--bear)">▶ STOP</span>: Close below $${stopLoss}`;
   }
 
   // Options
