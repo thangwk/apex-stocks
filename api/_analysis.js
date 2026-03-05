@@ -227,27 +227,27 @@ export async function fetchCandles(symbol) {
     const { getCache, setCache } = await import('./_redis.js');
     const TTL_CANDLES = 6 * 60 * 60 * 1000; // 6 hours
     const cached = await getCache('candles', symbol);
-    if (cached) return cached;
+    if (cached) return { data: cached, fromCache: true };
 
     const r = await fetch(
       `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=60&apikey=${process.env.TWELVE_DATA_API_KEY}`
     );
     const data = await r.json();
-    if (!data.values) return null;
+    if (!data.values) return { data: null, fromCache: false };
     const candles = data.values.reverse().map(v => ({
       date:v.datetime, open:parseFloat(v.open), high:parseFloat(v.high),
       low:parseFloat(v.low), close:parseFloat(v.close), volume:parseInt(v.volume)||0,
     }));
     await setCache('candles', symbol, candles, TTL_CANDLES);
-    return candles;
-  } catch(e) { return null; }
+    return { data: candles, fromCache: false };
+  } catch(e) { return { data: null, fromCache: false }; }
 }
 
 export async function fetchQuote(symbol) {
   try {
     const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('quote', symbol);
-    if (cached) return cached;
+    if (cached) return { data: cached, fromCache: true };
 
     const r = await fetch(
       `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
@@ -256,7 +256,7 @@ export async function fetchQuote(symbol) {
     if (d.status === 'error') throw new Error(d.message);
     const result = { c:parseFloat(d.close), pc:parseFloat(d.previous_close), o:parseFloat(d.open), h:parseFloat(d.high), l:parseFloat(d.low) };
     await setCache('quote', symbol, result, TTL.QUOTE);
-    return result;
+    return { data: result, fromCache: false };
   } catch(e) { throw e; }
 }
 
@@ -447,18 +447,42 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 // Twelve Data free tier = 8 calls/minute
 // fetchQuote = 1 call, fetchCandles = 1 call → 2 per stock
 // Process one stock at a time serially, 8s gap between stocks = max 7.5 stocks/min safely
-const STOCK_DELAY_MS = 8000; // 8s between stocks = ~7 stocks/min (well under 8 limit)
+// ── Rate limiting: only delay when live Twelve Data API calls are made ──
 
 export async function runAnalysis(tickers, onResult) {
   const results = [];
+  let apiCallsSinceLastDelay = 0;
+  let lastApiCallTime = 0;
 
   for (let i = 0; i < tickers.length; i++) {
     const ticker = tickers[i];
 
     try {
-      // Twelve Data calls (rate limited) — quote + candles
-      const quote   = await fetchQuote(ticker);
-      const candles = await fetchCandles(ticker);
+      // Twelve Data calls — track if they hit the live API
+      const { data: quote, fromCache: quoteFromCache }     = await fetchQuote(ticker);
+      const { data: candles, fromCache: candlesFromCache } = await fetchCandles(ticker);
+
+      const usedApi = !quoteFromCache || !candlesFromCache;
+
+      // If we hit the live API, track rate limiting
+      if (usedApi) {
+        const now = Date.now();
+        apiCallsSinceLastDelay += (!quoteFromCache ? 1 : 0) + (!candlesFromCache ? 1 : 0);
+
+        // If we've made 6+ calls since last delay, enforce 60s window
+        if (apiCallsSinceLastDelay >= 6) {
+          const elapsed = now - lastApiCallTime;
+          const wait = Math.max(0, 60000 - elapsed);
+          if (wait > 0) {
+            console.log(`Rate limit pause: ${wait}ms (${apiCallsSinceLastDelay} calls made)`);
+            await delay(wait);
+          }
+          apiCallsSinceLastDelay = 0;
+          lastApiCallTime = Date.now();
+        } else if (lastApiCallTime === 0) {
+          lastApiCallTime = now;
+        }
+      }
 
       // Non-rate-limited calls — fire in parallel
       const [metrics, profile, fmp, targets] = await Promise.all([
@@ -485,12 +509,6 @@ export async function runAnalysis(tickers, onResult) {
       const result = { ticker, signal:'ERROR', error:e.message };
       results.push(result);
       if (onResult) await onResult(result);
-    }
-
-    // Wait between stocks to respect Twelve Data rate limit
-    // Skip delay after last stock, and skip if both quote+candles were cached (no API calls made)
-    if (i < tickers.length - 1) {
-      await delay(STOCK_DELAY_MS);
     }
   }
 
