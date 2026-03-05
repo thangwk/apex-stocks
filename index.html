@@ -30,7 +30,7 @@
   .live-dot { width:7px; height:7px; border-radius:50%; background:var(--bull); animation:pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(1.5)} }
 
-  .main { display:grid; grid-template-columns:300px 1fr; min-height:calc(100vh - 57px); }
+  .main { display:grid; grid-template-columns:300px 1fr; min-height:calc(100vh - 57px); align-items:start; }
 
   /* ── SIDEBAR ── */
   .sidebar { border-right:1px solid var(--border); background:var(--bg2); display:flex; flex-direction:column; overflow-y:auto; }
@@ -468,10 +468,9 @@
           <div class="opt-detail" id="oIVRD">—</div>
         </div>
       </div>
-      </div>
     </div>
 
-    <div class="data-note">DATA: FINNHUB.IO · PRICES ARE REAL-TIME</div>
+    <div class="data-note">DATA: TWELVE DATA · FINNHUB · PRICES ARE 15-MIN DELAYED</div>
   </div>
 
   <!-- ══ CHART AREA ══ -->
