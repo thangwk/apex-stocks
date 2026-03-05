@@ -95,6 +95,14 @@
   .bar-track { height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
   .bar-fill { height:100%; border-radius:3px; transition:width 1s ease; }
 
+  .mini-rec {
+    display:inline-flex; align-items:center; padding:4px 12px; border-radius:4px;
+    font-family:'Space Mono',monospace; font-size:11px; font-weight:700;
+    letter-spacing:1.5px; margin:4px 0 6px; border:1px solid;
+  }
+  .mini-rec.buy  { color:#00e676; background:rgba(0,230,118,0.1); border-color:rgba(0,230,118,0.3); }
+  .mini-rec.sell { color:#ff1744; background:rgba(255,23,68,0.1);  border-color:rgba(255,23,68,0.3); }
+  .mini-rec.hold { color:var(--gold); background:rgba(255,193,7,0.1); border-color:rgba(255,193,7,0.3); }
   .rec-card { border-radius:8px; padding:15px; border:1px solid; }
   .rec-card.buy  { background:rgba(0,230,118,.05); border-color:rgba(0,230,118,.25); }
   .rec-card.sell { background:rgba(255,23,68,.05);  border-color:rgba(255,23,68,.25); }
@@ -528,6 +536,7 @@
         <div id="heroSectorTag" style="font-family:'Space Mono',monospace;font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--accent);letter-spacing:1px;white-space:nowrap;display:none"></div>
       </div>
       <div class="hero-name"   id="heroName">Enter a ticker to begin</div>
+      <div id="miniRec" style="display:none" class="mini-rec hold"></div>
       <div class="hero-price-row">
         <div class="hero-price" id="heroPrice">—</div>
         <div class="hero-chg"   id="heroChg"></div>
@@ -550,17 +559,12 @@
     </div>
 
     <div class="sb-block">
-      <div class="sb-label">Intrinsic Value (Multi-Method)</div>
-      <div class="iv-row">
-        <div class="iv-num" id="ivRange">—</div>
+      <div class="sb-label">Intrinsic Value</div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px">
+        <div class="iv-num" id="ivVal" style="font-size:28px;font-weight:900">—</div>
         <div class="iv-badge fair" id="ivBadge">—</div>
       </div>
-      <div class="bar-labels">
-        <span>Bear case</span>
-        <span id="ivMarginLo">—</span>
-        <span style="margin-left:auto">Bull case</span>
-        <span id="ivMarginHi">—</span>
-      </div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:6px" id="ivRange">—</div>
       <div class="bar-track"><div class="bar-fill" id="ivFill" style="width:0%"></div></div>
       <div id="ivMOS" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--gold);margin-top:6px;letter-spacing:1px;">—</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">
@@ -729,7 +733,7 @@ async function apiFMP(symbol) {
     const r = await fetch(`/api/fmp?symbol=${encodeURIComponent(symbol)}`);
     if (!r.ok) return null;
     return r.json();
-  } catch(e) { return null; } // FMP failure is non-fatal
+  } catch(e) { return null; }
 }
 async function apiTargets(symbol) {
   try {
@@ -917,7 +921,9 @@ function updateMetrics(quote, m, fmp, targets) {
        : bullish/total <= 0.35 ? '<span style="color:var(--bear)">▼ BEARISH</span>'
        : '<span style="color:var(--gold)">◆ MIXED</span>')
       : '';
-    tgtEl.innerHTML = `$${targets.targetMean.toFixed(2)} ${sentiment}<br><span style="color:var(--muted);font-size:9px">Lo $${(targets.targetLow||0).toFixed(0)} · Hi $${(targets.targetHigh||0).toFixed(0)} · ${targets.analysts||'?'} analysts</span>`;
+    const derived  = targets.derived ? '<span style="color:var(--muted);font-size:8px"> ~EST</span>' : '';
+    const analystN = targets.analysts ? `${targets.analysts} analysts` : `${total} ratings`;
+    tgtEl.innerHTML = `$${targets.targetMean.toFixed(2)}${derived} ${sentiment}<br><span style="color:var(--muted);font-size:9px">Lo $${(targets.targetLow||0).toFixed(0)} · Hi $${(targets.targetHigh||0).toFixed(0)} · ${analystN}</span>`;
   } else if (tgtEl) {
     tgtEl.textContent = '—';
   }
@@ -956,14 +962,16 @@ function isHighGrowth(growth) { return growth > 15; }
 
 function updateIV(quote, m, profile, fmp, targets) {
   const price    = quote.c;
+  const beta     = m['beta'] || 1;
   const industry = profile?.finnhubIndustry || '';
   const sectorPE   = getSectorMultiple(industry, SECTOR_PE, 18);
   const sectorPFCF = getSectorMultiple(industry, SECTOR_PFCF, 18);
   const sectorEV   = getSectorMultiple(industry, SECTOR_EV, 14);
 
-  // ── Pull all available data ──────────────────────────────────────
   const epsGAAP   = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
   const epsTTM    = m['epsTTM'] || epsGAAP;
+  // FIX 2: forward EPS
+  const epsForwd  = m['epsForward'] || m['epsEstimateNext'] || epsTTM;
   const bvps      = m['bookValuePerShareAnnual'] || 0;
   const roe       = m['roeRfy'] || m['roeTTM'] || 0;
   const fcfPS     = m['cashFlowPerShareTTM'] || m['freeCashFlowPerShareTTM'] || 0;
@@ -973,158 +981,295 @@ function updateIV(quote, m, profile, fmp, targets) {
   const psRatio   = m['psTTM'] || 0;
   const fwdPE     = m['forwardPE'] || 0;
 
-  // Use the BEST of revenue/eps growth — whichever tells the more accurate story
-  const revGrowth3Y = m['revenueGrowth3Y'] || 0;
-  const epsGrowth3Y = m['epsGrowth3Y'] || 0;
-  const epsGrowthTTM= m['epsGrowthTTMYoy'] || 0;
-  const revGrowthTTM= m['revenueGrowthTTMYoy'] || 0;
-  // Best growth = highest of (rev3Y, eps3Y, average of TTM rev+eps) — capped at 50%
-  const bestGrowth = Math.min(
-    Math.max(revGrowth3Y, epsGrowth3Y, (epsGrowthTTM + revGrowthTTM) / 2, 3),
-    50
-  );
-  const growth     = bestGrowth;
-  const highGrowth = isHighGrowth(growth);
-
-  // Primary earnings — FCF for capital-light/tech, else EPS
+  const growth = Math.min(Math.max(
+    m['revenueGrowth3Y'] || 0, m['epsGrowth3Y'] || 0,
+    ((m['epsGrowthTTMYoy'] || 0) + (m['revenueGrowthTTMYoy'] || 0)) / 2, 3
+  ), 50);
+  const highGrowth = growth > 15;
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
   const methods = [];
 
-  // ── Method 1: FCF-based DCF (10yr) ──────────────────────────────
+  // FIX 3: Two-stage DCF with higher growth cap
   if (fcfPS > 0) {
     const r = 0.09;
-    const g = Math.min(growth / 100, highGrowth ? 0.12 : 0.08);
-    const v = fcfPS * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
+    const g1 = Math.min(growth / 100, highGrowth ? 0.25 : 0.10);
+    const g2 = Math.min(g1 * 0.5, 0.05);
+    const gt = 0.03;
+    let v = 0, cf = fcfPS;
+    for (let yr = 1; yr <= 5;  yr++) { cf *= (1+g1); v += cf / Math.pow(1+r, yr); }
+    for (let yr = 6; yr <= 10; yr++) { cf *= (1+g2); v += cf / Math.pow(1+r, yr); }
+    v += (cf*(1+gt))/(r-gt) / Math.pow(1+r,10);
     if (v > 0 && isFinite(v))
-      methods.push({ name:'DCF on FCF (10yr)', short:'DCF', value:v, weight:2.5,
-        desc:`FCF $${fcfPS.toFixed(2)}/sh · ${(g*100).toFixed(0)}% growth · 9% discount` });
+      methods.push({ name:'DCF/FCF (2-stage)', short:'DCF', value:v, weight:2.5,
+        desc:`FCF $${fcfPS.toFixed(2)}/sh · ${(g1*100).toFixed(0)}%→${(g2*100).toFixed(0)}% 2-stage · 9% WACC` });
   } else if (epsGAAP > 0) {
-    const r = 0.09, g = Math.min(growth / 100, 0.08);
-    const v = epsGAAP * 0.8 * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
+    const r = 0.09;
+    const g1 = Math.min(growth / 100, highGrowth ? 0.20 : 0.08);
+    const g2 = Math.min(g1 * 0.5, 0.04);
+    const gt = 0.03;
+    let v = 0, cf = epsGAAP * 0.75;
+    for (let yr = 1; yr <= 5;  yr++) { cf *= (1+g1); v += cf / Math.pow(1+r, yr); }
+    for (let yr = 6; yr <= 10; yr++) { cf *= (1+g2); v += cf / Math.pow(1+r, yr); }
+    v += (cf*(1+gt))/(r-gt) / Math.pow(1+r,10);
     if (v > 0 && isFinite(v))
-      methods.push({ name:'DCF on EPS (10yr)', short:'DCF', value:v, weight:1.5,
-        desc:`EPS $${epsGAAP.toFixed(2)} × 80% proxy · ${growth.toFixed(0)}% growth · 9% discount` });
+      methods.push({ name:'DCF/EPS (2-stage)', short:'DCF', value:v, weight:1.5,
+        desc:`EPS $${epsGAAP.toFixed(2)} × 75% proxy · ${(g1*100).toFixed(0)}%→${(g2*100).toFixed(0)}% 2-stage` });
   }
 
-  // ── Method 2: Forward P/E ────────────────────────────────────────
-  // Most market-reflective — uses analyst consensus forward earnings
-  if (fwdPE > 0 && epsTTM > 0) {
-    // Apply a slight discount (85%) to current fwd P/E as fair value
-    const fairFwdPE = fwdPE * 0.85;
-    const v = epsTTM * fairFwdPE;
-    methods.push({ name:'Forward P/E', short:'FWD', value:v, weight:2,
-      desc:`EPS $${epsTTM.toFixed(2)} × ${fairFwdPE.toFixed(1)}× (85% of ${fwdPE.toFixed(1)}× fwd P/E)` });
+  // FIX 2: Forward P/E using forward EPS and sector fair multiple
+  if (fwdPE > 0 && epsForwd > 0) {
+    const fairFwdPE = Math.min(sectorPE, fwdPE * 1.1);
+    const v = epsForwd * fairFwdPE;
+    if (v > 0) methods.push({ name:'Forward P/E', short:'FWD', value:v, weight:2,
+      desc:`Fwd EPS $${epsForwd.toFixed(2)} × ${fairFwdPE.toFixed(1)}× (min of sector ${sectorPE}× / 110% fwd P/E)` });
   }
 
-  // ── Method 3: P/FCF multiple ─────────────────────────────────────
+  // FIX 4: P/FCF — blended market + sector
   if (fcfPS > 0) {
-    const v = fcfPS * sectorPFCF;
-    methods.push({ name:`P/FCF (${industry || 'Sector'})`, short:'FCF', value:v, weight:2,
-      desc:`FCF $${fcfPS.toFixed(2)}/sh × ${sectorPFCF}× sector P/FCF multiple` });
+    const marketPFCF  = m['pfcfShareTTM'] || 0;
+    const blendedPFCF = marketPFCF > 0
+      ? Math.min(sectorPFCF * 0.6 + marketPFCF * 0.4, sectorPFCF * 1.3)
+      : sectorPFCF;
+    methods.push({ name:`P/FCF`, short:'FCF', value:fcfPS * blendedPFCF, weight:2,
+      desc:`FCF $${fcfPS.toFixed(2)}/sh × ${blendedPFCF.toFixed(1)}× (blended sector/market)` });
   }
 
-  // ── Method 4: EV/EBITDA ──────────────────────────────────────────
+  // FIX 4: EV/EBITDA — blended market + sector
   if (ebitdaPS > 0) {
-    // Use sector avg but cap at 90% of current market multiple
-    const fairEV = evEbitda > 0 ? Math.min(sectorEV, evEbitda * 0.9) : sectorEV;
-    const v = ebitdaPS * fairEV;
-    methods.push({ name:'EV/EBITDA', short:'EV', value:v, weight:2,
-      desc:`EBITDA $${ebitdaPS.toFixed(2)}/sh × ${fairEV.toFixed(1)}× (sector ${sectorEV}×, mkt ${evEbitda.toFixed(1)}×)` });
+    const blendedEV = evEbitda > 0
+      ? Math.min(sectorEV * 0.6 + evEbitda * 0.4, sectorEV * 1.3)
+      : sectorEV;
+    methods.push({ name:'EV/EBITDA', short:'EV', value:ebitdaPS * blendedEV, weight:2,
+      desc:`EBITDA $${ebitdaPS.toFixed(2)}/sh × ${blendedEV.toFixed(1)}× (blended: sector ${sectorEV}× / mkt ${evEbitda.toFixed(1)}×)` });
   }
 
-  // ── Method 5: Sector P/E on earnings ────────────────────────────
-  if (earningsPS > 0) {
-    const v = earningsPS * sectorPE;
-    const label = fcfPS > 0 ? `Sector P/E on FCF` : `Sector P/E`;
-    methods.push({ name:label, short:'SPE', value:v, weight:1.5,
-      desc:`$${earningsPS.toFixed(2)}/sh × ${sectorPE}× (${industry || 'market'} sector P/E)` });
-  }
+  if (earningsPS > 0)
+    methods.push({ name:'Sector P/E', short:'SPE', value:earningsPS * sectorPE, weight:1.5,
+      desc:`$${earningsPS.toFixed(2)}/sh × ${sectorPE}× sector P/E` });
 
-  // ── Method 6: PEG Ratio ──────────────────────────────────────────
-  // Only add if growth is meaningful (>5%) to avoid near-zero PE values
   if (earningsPS > 0 && growth > 5) {
     const fairPE = Math.min(growth * 1.5, 60);
-    const v = earningsPS * fairPE;
-    if (v > 0) methods.push({ name:'PEG (Lynch)', short:'PEG', value:v, weight:1,
-      desc:`$${earningsPS.toFixed(2)}/sh × ${fairPE.toFixed(0)}× (growth ${growth.toFixed(0)}%, PEG≈1.5)` });
+    methods.push({ name:'PEG', short:'PEG', value:earningsPS * fairPE, weight:1,
+      desc:`$${earningsPS.toFixed(2)}/sh × ${fairPE.toFixed(0)}× (growth ${growth.toFixed(0)}%)` });
   }
 
-  // ── Method 7: P/S Revenue ────────────────────────────────────────
-  // Include for all tech/high-margin stocks regardless of growth
   if (revenuePS > 0 && (highGrowth || ['Technology','Software','Internet','Semiconductors'].some(s => industry.includes(s)))) {
     const fairPS = Math.min(psRatio > 0 ? psRatio * 0.8 : sectorEV * 0.4, 20);
-    const v = revenuePS * fairPS;
-    if (v > 0) methods.push({ name:'P/S Revenue', short:'PS', value:v, weight:1,
-      desc:`Rev $${revenuePS.toFixed(2)}/sh × ${fairPS.toFixed(1)}× P/S (20% disc. to market)` });
+    if (fairPS > 0) methods.push({ name:'P/S', short:'PS', value:revenuePS * fairPS, weight:1,
+      desc:`Rev $${revenuePS.toFixed(2)}/sh × ${fairPS.toFixed(1)}× P/S` });
   }
 
-  // ── Method 8: Graham Number ──────────────────────────────────────
-  // Only for mature/value stocks with meaningful book value
-  if (epsGAAP > 0 && bvps > 5 && !highGrowth && roe < 50) {
-    const v = Math.sqrt(22.5 * epsGAAP * bvps);
-    methods.push({ name:'Graham Number', short:'GN', value:v, weight:0.5,
-      desc:`√(22.5 × $${epsGAAP.toFixed(2)} EPS × $${bvps.toFixed(2)} BVPS)` });
-  }
+  if (epsGAAP > 0 && bvps > 5 && !highGrowth && roe < 50)
+    methods.push({ name:'Graham', short:'GN', value:Math.sqrt(22.5 * epsGAAP * bvps), weight:0.5,
+      desc:`√(22.5 × $${epsGAAP.toFixed(2)} × $${bvps.toFixed(2)})` });
 
-  // ── Method 9: P/B with ROE ───────────────────────────────────────
-  // Cap ROE contribution at 50% to avoid extreme values like AAPL's 150% ROE
   if (bvps > 0 && roe > 0) {
     const cappedROE = Math.min(roe, 50);
-    const fairPB = Math.min((cappedROE/100) / 0.09, 8);
-    const v = bvps * fairPB;
-    if (v > 0) methods.push({ name:'P/B (ROE)', short:'PB', value:v, weight:0.5,
-      desc:`$${bvps.toFixed(2)} BVPS × ${fairPB.toFixed(1)}× (ROE capped ${cappedROE.toFixed(0)}% ÷ 9% CoE)` });
+    const fairPB = Math.min((cappedROE/100)/0.09, 8);
+    methods.push({ name:'P/B', short:'PB', value:bvps * fairPB, weight:0.5,
+      desc:`$${bvps.toFixed(2)} BVPS × ${fairPB.toFixed(1)}×` });
   }
 
-  // ── Method: DDM (Dividend Discount Model) ────────────────────────
-  // Only for dividend-paying stocks: V = D1 / (r - g)
-  const divTTM   = m['dividendPerShareTTM'] || 0;
-  const divGrow  = (m['dividendGrowthRate5Y'] || 0) / 100;
-  const wacc     = 0.09; // assumed 9% cost of equity
-  if (divTTM > 0 && divGrow > 0 && divGrow < wacc) {
-    const d1 = divTTM * (1 + divGrow);
-    const v  = d1 / (wacc - divGrow);
-    if (v > 0) methods.push({ name:'DDM (Gordon Growth)', short:'DDM', value:v, weight:1.5,
-      desc:`Div $${divTTM.toFixed(2)} × (1+${(divGrow*100).toFixed(1)}%) ÷ (9% WACC − ${(divGrow*100).toFixed(1)}% growth)` });
+  const divTTM  = m['dividendPerShareTTM'] || 0;
+  const divGrow = (m['dividendGrowthRate5Y'] || 0) / 100;
+  if (divTTM > 0 && divGrow > 0 && divGrow < 0.09) {
+    const v = (divTTM * (1 + divGrow)) / (0.09 - divGrow);
+    if (v > 0) methods.push({ name:'DDM', short:'DDM', value:v, weight:1.5,
+      desc:`Div $${divTTM.toFixed(2)} × (1+${(divGrow*100).toFixed(1)}%) ÷ (9%−${(divGrow*100).toFixed(1)}%)` });
   }
 
-  // ── Method: Analyst Price Target ─────────────────────────────────
-  // Finnhub consensus mean target — highest weight, real-world signal
-  if (targets?.targetMean && targets.targetMean > 0) {
-    const n = targets.analysts ? ` · ${targets.analysts} analysts` : '';
-    methods.push({ name:`Analyst Target${n}`, short:'ANL', value:targets.targetMean, weight:3,
-      desc:`Consensus mean $${targets.targetMean.toFixed(2)} | Low $${(targets.targetLow||0).toFixed(2)} – High $${(targets.targetHigh||0).toFixed(2)}` });
-  }
+  // FIX 1: Analyst target NOT included in IV model — used in recommendation only
 
-  // ── Fallback ─────────────────────────────────────────────────────
-  if (methods.length === 0) {
-    if (earningsPS > 0) {
-      methods.push({ name:'P/E Normalised', short:'PE', value:earningsPS*sectorPE, weight:1,
-        desc:`$${earningsPS.toFixed(2)}/sh × ${sectorPE} sector avg P/E` });
-    } else { renderIVEmpty(); return; }
-  }
+  if (methods.length === 0) { renderIVEmpty(); return; }
 
-  // Drop extreme outliers (beyond 4× median)
+  // Drop outliers beyond 3× median
   const vals   = methods.map(x => x.value).sort((a,b) => a-b);
   const median = vals[Math.floor(vals.length / 2)];
-  const pool   = methods.filter(x => x.value > 0 && x.value < median*4 && x.value > median/4);
+  const pool   = methods.filter(x => x.value > 0 && x.value < median*3 && x.value > median/3);
   const final  = pool.length > 0 ? pool : methods;
 
   const totalW = final.reduce((s,x) => s+x.weight, 0);
   const mid    = final.reduce((s,x) => s+x.value*x.weight, 0) / totalW;
-  const lo     = Math.min(...final.map(x => x.value));
-  const hi     = Math.max(...final.map(x => x.value));
 
-  renderIV(price, mid, lo, hi, final, industry, sectorPE);
+  // FIX 5: std deviation band
+  const variance = final.reduce((s,x) => s + x.weight * Math.pow(x.value - mid, 2), 0) / totalW;
+  const stdDev   = Math.sqrt(variance);
+  const lo = Math.max(mid - stdDev, Math.min(...final.map(x=>x.value)));
+  const hi = Math.min(mid + stdDev, Math.max(...final.map(x=>x.value)));
+
+  // FIX 6: beta-scaled MOS
+  const mosPct = Math.min(0.10 + (beta - 1) * 0.05, 0.25);
+  const mos    = mid * (1 - mosPct);
+
+  renderIV(price, mid, lo, hi, mos, mosPct, final, industry, sectorPE, targets, beta);
 }
 
 function renderIVEmpty() {
-  document.getElementById('ivRange').textContent    = 'N/A';
-  document.getElementById('ivBadge').textContent    = '—';
-  document.getElementById('ivMarginLo').textContent = '—';
-  document.getElementById('ivMarginHi').textContent = '—';
-  document.getElementById('ivBreakdown').innerHTML  = '<div style="color:var(--muted);font-size:10px">Insufficient fundamental data</div>';
+  document.getElementById('ivVal').textContent     = 'N/A';
+  document.getElementById('ivBadge').textContent   = '—';
+  document.getElementById('ivRange').textContent   = '—';
+  document.getElementById('ivMOS').textContent     = '—';
+  document.getElementById('ivConf').textContent    = '—';
+  document.getElementById('ivBreakdown').innerHTML = '<div style="color:var(--muted);font-size:10px">Insufficient fundamental data</div>';
+  document.getElementById('miniRec').style.display = 'none';
+}
+
+function renderIV(price, mid, lo, hi, mos, mosPct, pool, industry, sectorPE, targets, beta) {
+  const marginMid = ((mid - price) / price * 100);
+  const marginLo  = ((lo  - price) / price * 100);
+  const marginHi  = ((hi  - price) / price * 100);
+
+  // Single IV value
+  const ivValEl = document.getElementById('ivVal');
+  if (ivValEl) ivValEl.textContent = '$' + mid.toFixed(2);
+
+  // Std-dev range
+  document.getElementById('ivRange').textContent =
+    `±1σ  $${lo.toFixed(0)} – $${hi.toFixed(0)}`;
+
+  // MOS line — beta-scaled
+  document.getElementById('ivMOS').textContent =
+    `MOS Buy Zone ≤$${mos.toFixed(2)}  (${(mosPct*100).toFixed(0)}% disc · β=${(beta||1).toFixed(2)})`;
+
+  // Badge
+  const badge = document.getElementById('ivBadge');
+  const fill  = document.getElementById('ivFill');
+  if (marginMid > 10) {
+    badge.textContent = 'UNDERVALUED'; badge.className = 'iv-badge under';
+    fill.style.background = 'var(--bull)';
+  } else if (marginMid > 3) {
+    badge.textContent = 'SLIGHT DISC.'; badge.className = 'iv-badge under';
+    fill.style.background = 'var(--bull)';
+  } else if (marginMid < -15) {
+    badge.textContent = 'OVERVALUED'; badge.className = 'iv-badge over';
+    fill.style.background = 'var(--bear)';
+  } else if (marginMid < -5) {
+    badge.textContent = 'SLIGHT PREM.'; badge.className = 'iv-badge over';
+    fill.style.background = 'var(--bear)';
+  } else {
+    badge.textContent = 'FAIR VALUE'; badge.className = 'iv-badge fair';
+    fill.style.background = 'var(--accent)';
+  }
+  fill.style.width = Math.min(Math.abs(marginMid) * 2, 100) + '%';
+
+  // Confidence
+  const conf = pool.length >= 5 ? 'HIGH' : pool.length >= 3 ? 'MEDIUM' : 'LOW';
+  const industryLabel = (industry || '').toUpperCase() || 'MARKET';
+
+  const sectorTag = document.getElementById('ivSectorTag');
+  if (sectorTag) { sectorTag.textContent = industryLabel + ' · P/E ' + sectorPE + '×'; sectorTag.style.display = 'inline-block'; }
+  const heroSectorTag = document.getElementById('heroSectorTag');
+  if (heroSectorTag) { heroSectorTag.textContent = industryLabel; heroSectorTag.style.display = 'inline-block'; }
+
+  document.getElementById('ivConf').textContent =
+    conf + ' CONFIDENCE · ' + pool.length + ' METHOD' + (pool.length > 1 ? 'S' : '');
+
+  // Method breakdown
+  document.getElementById('ivBreakdown').innerHTML = pool.map(x => {
+    const diff = ((x.value - price) / price * 100);
+    const col  = diff > 3 ? 'var(--bull)' : diff < -5 ? 'var(--bear)' : 'var(--accent)';
+    return `
+      <div class="iv-row-item">
+        <div class="iv-row-left">
+          <span class="iv-row-tag">${x.short}</span>
+          <span class="iv-row-name">${x.name}</span>
+        </div>
+        <div class="iv-row-right">
+          <span class="iv-row-val" style="color:${col}">$${x.value.toFixed(2)}</span>
+          <span class="iv-row-diff" style="color:${col}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</span>
+        </div>
+      </div>
+      <div class="iv-row-desc">${x.desc}</div>`;
+  }).join('');
+
+  // ── RECOMMENDATION ENGINE ─────────────────────────────────────────
+  // Use analyst target as price target if available, else IV mid
+  const analystTarget = targets?.targetMean || null;
+  const priceTarget   = analystTarget || mid;
+  const upside        = ((priceTarget - price) / price * 100);
+  const buyBelow      = mos.toFixed(2);
+  const aggressiveBuy = (mid * 0.95).toFixed(2);
+  const stopLoss      = (price * 0.93).toFixed(2);
+  const tightStop     = (price * 0.96).toFixed(2);
+
+  document.getElementById('tgtPT').textContent     = '$' + priceTarget.toFixed(2);
+  document.getElementById('tgtSL').textContent     = '$' + stopLoss;
+  document.getElementById('tgtUpside').textContent = (upside >= 0 ? '+' : '') + upside.toFixed(1) + '%';
+
+  const recCard   = document.getElementById('recCard');
+  const recAction = document.getElementById('recAction');
+  const recBody   = document.getElementById('recBody');
+  const recLevels = document.getElementById('recLevels');
+  const tgtBuyEl  = document.getElementById('tgtBuy');
+  const miniRec   = document.getElementById('miniRec');
+
+  let actionText, actionClass, bodyText, levelsHtml;
+
+  if (marginMid > 10) {
+    actionText = '▲ BUY'; actionClass = 'buy';
+    bodyText = `${currentTicker} trades ${marginMid.toFixed(1)}% below fair value ($${mid.toFixed(2)}). Strong risk/reward for a long entry.`;
+    levelsHtml = `<span style="color:var(--bull)">▶ ENTER</span> ~$${price.toFixed(2)} or scale below $${aggressiveBuy}<br>
+      <span style="color:var(--bull)">▶ ADD ON DIP</span> $${buyBelow} (${(mosPct*100).toFixed(0)}% MOS)<br>
+      <span style="color:var(--bear)">▶ STOP</span> $${stopLoss}<br>
+      <span style="color:var(--accent)">▶ TARGET</span> $${priceTarget.toFixed(2)} (+${upside.toFixed(1)}%)`;
+  } else if (marginMid > 3) {
+    actionText = '◆ WATCH'; actionClass = 'buy';
+    bodyText = `Slight discount to fair value. Scale in on pullbacks toward support.`;
+    levelsHtml = `<span style="color:var(--bull)">▶ ENTER ON DIP</span> below $${aggressiveBuy}<br>
+      <span style="color:var(--bull)">▶ IDEAL BUY</span> $${buyBelow}<br>
+      <span style="color:var(--bear)">▶ STOP</span> $${stopLoss}<br>
+      <span style="color:var(--accent)">▶ TARGET</span> $${priceTarget.toFixed(2)} (+${upside.toFixed(1)}%)`;
+  } else if (marginMid < -15) {
+    actionText = '▼ AVOID'; actionClass = 'sell';
+    bodyText = `${currentTicker} trades ${Math.abs(marginMid).toFixed(1)}% above fair value. Poor risk/reward at current prices.`;
+    levelsHtml = `<span style="color:var(--bear)">▶ AVOID</span> Do not initiate longs at $${price.toFixed(2)}<br>
+      <span style="color:var(--bull)">▶ BUY IF FALLS TO</span> $${buyBelow}<br>
+      <span style="color:var(--gold)">▶ WATCH LEVEL</span> $${(mid * 0.97).toFixed(2)}<br>
+      <span style="color:var(--bear)">▶ IF HOLDING</span> Stop $${tightStop}`;
+  } else if (marginMid < -5) {
+    actionText = '⚠ CAUTION'; actionClass = 'sell';
+    bodyText = `Slight premium to fair value. Wait for a pullback before adding.`;
+    levelsHtml = `<span style="color:var(--bear)">▶ AVOID ADDING</span> Stretched above fair value<br>
+      <span style="color:var(--bull)">▶ BUY IF FALLS TO</span> $${(mid * 0.93).toFixed(2)}<br>
+      <span style="color:var(--gold)">▶ FAIR VALUE</span> $${lo.toFixed(0)} – $${hi.toFixed(0)}<br>
+      <span style="color:var(--bear)">▶ IF HOLDING</span> Stop $${tightStop}`;
+  } else {
+    actionText = '— HOLD'; actionClass = 'hold';
+    bodyText = `Trading within fair value range. Hold positions and watch key levels.`;
+    levelsHtml = `<span style="color:var(--gold)">▶ HOLD</span> Fair value $${lo.toFixed(0)} – $${hi.toFixed(0)}<br>
+      <span style="color:var(--bull)">▶ ADD ON DIP</span> $${buyBelow}<br>
+      <span style="color:var(--accent)">▶ TARGET</span> $${priceTarget.toFixed(2)} (+${upside.toFixed(1)}%)<br>
+      <span style="color:var(--bear)">▶ STOP</span> $${stopLoss}`;
+  }
+
+  recCard.className   = 'rec-card '   + actionClass;
+  recAction.className = 'rec-action ' + actionClass;
+  recAction.textContent = actionText;
+  if (tgtBuyEl) tgtBuyEl.textContent = '$' + buyBelow;
+  recBody.textContent = bodyText;
+  recLevels.innerHTML = levelsHtml;
+
+  // Mini recommendation badge — shown just below ticker
+  if (miniRec) {
+    miniRec.style.display = 'inline-flex';
+    miniRec.className = `mini-rec ${actionClass}`;
+    miniRec.textContent = actionText;
+  }
+
+  // Options
+  const c1 = (Math.ceil(price / 5) * 5).toFixed(0);
+  const c2 = (+c1 + 5).toFixed(0);
+  const p1 = (Math.floor(price / 5) * 5).toFixed(0);
+  document.getElementById('oCall').textContent    = '$' + c1 + 'C';
+  document.getElementById('oCallD').textContent   = 'Exp: ~30 DTE · OTM call';
+  document.getElementById('oPut').textContent     = '$' + p1 + 'P';
+  document.getElementById('oPutD').textContent    = 'Exp: ~21 DTE · Protective put';
+  document.getElementById('oSpread').textContent  = '$' + c1 + '/$' + c2 + 'C';
+  document.getElementById('oSpreadD').textContent = 'Defined risk bull spread';
+  const ivr = m ? (m['currentRatioAnnual'] || 0) : 0;
+  document.getElementById('oIVR').textContent  = ivr > 0 ? ivr.toFixed(1) : 'N/A';
+  document.getElementById('oIVRD').textContent = ivr > 0.7 ? 'High IV — favour selling premium' : ivr > 0.3 ? 'Moderate IV' : 'Low IV — favour buying options';
 }
 
 function renderIV(price, mid, lo, hi, pool) {

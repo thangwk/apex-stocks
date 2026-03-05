@@ -44,6 +44,8 @@ export function calcIV(m, industry, fmp, targets) {
 
   const epsGAAP  = m.epsBasicExclExtraAnnual || m.epsTTM || 0;
   const epsTTM   = m.epsTTM || epsGAAP;
+  // FIX 2: use forward EPS if available, else fall back to TTM
+  const epsForwd = m.epsForward || m.epsEstimateNext || epsTTM;
   const bvps     = m.bookValuePerShareAnnual || 0;
   const roe      = m.roeRfy || m.roeTTM || 0;
   const fcfPS    = m.cashFlowPerShareTTM || m.freeCashFlowPerShareTTM || 0;
@@ -52,8 +54,9 @@ export function calcIV(m, industry, fmp, targets) {
   const revenuePS= m.revenuePerShareTTM || m.revenuePerShareAnnual || 0;
   const psRatio  = m.psTTM || 0;
   const fwdPE    = m.forwardPE || 0;
+  const beta     = m.beta || 1;
 
-  // Best growth: highest of rev3Y, eps3Y, avg(TTM rev+eps)
+  // Best growth
   const growth = Math.min(Math.max(
     m.revenueGrowth3Y || 0, m.epsGrowth3Y || 0,
     ((m.epsGrowthTTMYoy || 0) + (m.revenueGrowthTTMYoy || 0)) / 2, 3
@@ -63,83 +66,116 @@ export function calcIV(m, industry, fmp, targets) {
 
   const methods = [];
 
-  // DCF on FCF
+  // FIX 3: Raise DCF growth cap — 25% for high growth, fade to terminal 3%
   if (fcfPS > 0) {
-    const r = 0.09, g = Math.min(growth/100, highGrowth ? 0.12 : 0.08);
-    const v = fcfPS * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
-    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/FCF', value:v, weight:2.5 });
+    const r  = 0.09;
+    const g1 = Math.min(growth / 100, highGrowth ? 0.25 : 0.10); // stage 1 (yrs 1-5)
+    const g2 = Math.min(g1 * 0.5, 0.05);                          // stage 2 (yrs 6-10), fade
+    const gt = 0.03;                                                // terminal
+    // Two-stage DCF
+    let v = 0;
+    let cf = fcfPS;
+    for (let yr = 1; yr <= 5;  yr++) { cf *= (1 + g1); v += cf / Math.pow(1+r, yr); }
+    for (let yr = 6; yr <= 10; yr++) { cf *= (1 + g2); v += cf / Math.pow(1+r, yr); }
+    const terminal = (cf * (1 + gt)) / (r - gt);
+    v += terminal / Math.pow(1+r, 10);
+    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/FCF (2-stage)', value:v, weight:2.5 });
   } else if (epsGAAP > 0) {
-    const r = 0.09, g = Math.min(growth/100, 0.08);
-    const v = epsGAAP * 0.8 * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
-    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/EPS', value:v, weight:1.5 });
+    const r  = 0.09;
+    const g1 = Math.min(growth / 100, highGrowth ? 0.20 : 0.08);
+    const g2 = Math.min(g1 * 0.5, 0.04);
+    const gt = 0.03;
+    let v = 0, cf = epsGAAP * 0.75;
+    for (let yr = 1; yr <= 5;  yr++) { cf *= (1 + g1); v += cf / Math.pow(1+r, yr); }
+    for (let yr = 6; yr <= 10; yr++) { cf *= (1 + g2); v += cf / Math.pow(1+r, yr); }
+    v += (cf * (1 + gt)) / (r - gt) / Math.pow(1+r, 10);
+    if (v > 0 && isFinite(v)) methods.push({ name:'DCF/EPS (2-stage)', value:v, weight:1.5 });
   }
 
-  // Forward P/E
-  if (fwdPE > 0 && epsTTM > 0)
-    methods.push({ name:'Fwd P/E', value:epsTTM * fwdPE * 0.85, weight:2 });
+  // FIX 2: Forward P/E — use forward EPS, no arbitrary haircut
+  if (fwdPE > 0 && epsForwd > 0) {
+    // Fair P/E = sector P/E, capped at 1.1× current forward P/E (don't assume re-rating)
+    const fairFwdPE = Math.min(sectorPE, fwdPE * 1.1);
+    const v = epsForwd * fairFwdPE;
+    if (v > 0) methods.push({ name:'Forward P/E', value:v, weight:2 });
+  }
 
-  // P/FCF
-  if (fcfPS > 0) methods.push({ name:'P/FCF', value:fcfPS * sectorPFCF, weight:2 });
+  // FIX 4: P/FCF — use blended market + sector multiple, not sector alone
+  if (fcfPS > 0) {
+    const marketPFCF  = m.pfcfShareTTM || 0;
+    const blendedPFCF = marketPFCF > 0
+      ? (sectorPFCF * 0.6 + marketPFCF * 0.4)  // blend sector norm with market reality
+      : sectorPFCF;
+    methods.push({ name:'P/FCF', value:fcfPS * Math.min(blendedPFCF, sectorPFCF * 1.3), weight:2 });
+  }
 
-  // EV/EBITDA
+  // FIX 4: EV/EBITDA — blend sector avg with actual market multiple
   if (ebitdaPS > 0) {
-    const fairEV = evEbitda > 0 ? Math.min(sectorEV, evEbitda * 0.9) : sectorEV;
-    methods.push({ name:'EV/EBITDA', value:ebitdaPS * fairEV, weight:2 });
+    const blendedEV = evEbitda > 0
+      ? (sectorEV * 0.6 + evEbitda * 0.4)
+      : sectorEV;
+    methods.push({ name:'EV/EBITDA', value:ebitdaPS * Math.min(blendedEV, sectorEV * 1.3), weight:2 });
   }
 
   // Sector P/E
-  if (earningsPS > 0) methods.push({ name:'Sector P/E', value:earningsPS * sectorPE, weight:1.5 });
+  if (earningsPS > 0)
+    methods.push({ name:'Sector P/E', value:earningsPS * sectorPE, weight:1.5 });
 
-  // PEG (only if growth > 5%)
+  // PEG
   if (earningsPS > 0 && growth > 5) {
     const fairPE = Math.min(growth * 1.5, 60);
     methods.push({ name:'PEG', value:earningsPS * fairPE, weight:1 });
   }
 
-  // P/S for tech stocks
+  // P/S for tech
   if (revenuePS > 0 && (highGrowth || ['Technology','Software','Internet','Semiconductor'].some(s => industry.includes(s)))) {
     const fairPS = Math.min(psRatio > 0 ? psRatio * 0.8 : sectorEV * 0.4, 20);
     if (fairPS > 0) methods.push({ name:'P/S', value:revenuePS * fairPS, weight:1 });
   }
 
-  // Graham (mature/value only — skip if high ROE like AAPL)
+  // Graham (value only)
   if (epsGAAP > 0 && bvps > 5 && !highGrowth && roe < 50)
     methods.push({ name:'Graham', value:Math.sqrt(22.5 * epsGAAP * bvps), weight:0.5 });
 
-  // P/B with capped ROE
+  // P/B
   if (bvps > 0 && roe > 0) {
     const cappedROE = Math.min(roe, 50);
     const fairPB = Math.min((cappedROE/100)/0.09, 8);
     methods.push({ name:'P/B', value:bvps * fairPB, weight:0.5 });
   }
 
-  // DDM — dividend-paying stocks only
-  const divTTM  = m['dividendPerShareTTM'] || 0;
-  const divGrow = (m['dividendGrowthRate5Y'] || 0) / 100;
-  const wacc    = 0.09;
-  if (divTTM > 0 && divGrow > 0 && divGrow < wacc) {
-    const v = (divTTM * (1 + divGrow)) / (wacc - divGrow);
+  // DDM
+  const divTTM  = m.dividendPerShareTTM || 0;
+  const divGrow = (m.dividendGrowthRate5Y || 0) / 100;
+  if (divTTM > 0 && divGrow > 0 && divGrow < 0.09) {
+    const v = (divTTM * (1 + divGrow)) / (0.09 - divGrow);
     if (v > 0) methods.push({ name:'DDM', value:v, weight:1.5 });
   }
 
-  // Analyst consensus price target — highest weight, real-world signal
-  if (targets?.targetMean && targets.targetMean > 0)
-    methods.push({ name:'Analyst Target', value:targets.targetMean, weight:3 });
+  // FIX 1: Analyst target excluded from IV model — used separately in recommendation only
 
   if (methods.length === 0) return null;
 
+  // Drop outliers beyond 3× median (tighter than before)
   const vals   = methods.map(x => x.value).sort((a,b) => a-b);
-  const median = vals[Math.floor(vals.length/2)];
-  const pool   = methods.filter(x => x.value > 0 && x.value < median*4 && x.value > median/4);
+  const median = vals[Math.floor(vals.length / 2)];
+  const pool   = methods.filter(x => x.value > 0 && x.value < median * 3 && x.value > median / 3);
   const final  = pool.length > 0 ? pool : methods;
 
   const totalW = final.reduce((s,x) => s+x.weight, 0);
   const mid    = final.reduce((s,x) => s+x.value*x.weight, 0) / totalW;
-  const lo     = Math.min(...final.map(x => x.value));
-  const hi     = Math.max(...final.map(x => x.value));
-  const mos    = mid * 0.85;
 
-  return { mid, lo, hi, mos };
+  // FIX 5: std deviation band instead of min/max
+  const variance = final.reduce((s,x) => s + x.weight * Math.pow(x.value - mid, 2), 0) / totalW;
+  const stdDev   = Math.sqrt(variance);
+  const lo       = Math.max(mid - stdDev, Math.min(...final.map(x=>x.value)));
+  const hi       = Math.min(mid + stdDev, Math.max(...final.map(x=>x.value)));
+
+  // FIX 6: MOS scales with beta — higher beta = larger required margin of safety
+  const mosPct = Math.min(0.10 + (beta - 1) * 0.05, 0.25); // 10% base + 5% per beta point, max 25%
+  const mos    = mid * (1 - mosPct);
+
+  return { mid, lo, hi, mos, mosPct, stdDev, methodCount: final.length };
 }
 
 export function analyzeCandles(candles, currentPrice) {
