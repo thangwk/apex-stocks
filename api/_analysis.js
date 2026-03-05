@@ -204,20 +204,20 @@ export async function sendTelegram(chatId, message) {
   await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ chat_id:chatId, text:message, parse_mode:'Markdown' }),
+    body:JSON.stringify({ chat_id:chatId, text:message, parse_mode:'HTML' }),
   });
 }
 
 // ── Format a single stock result into a Telegram message block ──
 function formatStockBlock(r) {
-  if (r.signal === 'ERROR') return `⛔ *${r.ticker}* — ${r.error}`;
+  if (r.signal === 'ERROR') return `⛔ <b>${r.ticker}</b> — ${r.error}`;
 
   const emoji  = { BUY:'🟢', SELL:'🔴', HOLD:'⚪', WATCH:'🟡' };
   const chgStr = (r.change >= 0 ? '+' : '') + r.change.toFixed(2) + '%';
   const reasons = r.reasons.slice(0, 2).join(' · ') || 'Neutral momentum';
 
   const lines = [
-    `${emoji[r.signal] || '⚪'} *${r.ticker}* — ${r.signal}`,
+    `${emoji[r.signal] || '⚪'} <b>${r.ticker}</b> — ${r.signal}`,
     `Price: $${r.price.toFixed(2)} (${chgStr})`,
     `${reasons}`,
     `Support: $${r.support?.toFixed(2)} | Resist: $${r.resist?.toFixed(2)}`,
@@ -231,7 +231,7 @@ function formatStockBlock(r) {
       : margin < -20 ? '🔴 OVERVALUED'
       : margin < -8  ? '🟠 SLIGHT PREMIUM'
       : '⚪ FAIR VALUE';
-    lines.push(`\n📊 *Intrinsic Value*`);
+    lines.push(`\n📊 <b>Intrinsic Value</b>`);
     lines.push(`Range: $${r.iv.lo.toFixed(0)} – $${r.iv.hi.toFixed(0)} | Mid: $${r.iv.mid.toFixed(0)}`);
     lines.push(`${verdict} (${margin >= 0 ? '+' : ''}${margin.toFixed(1)}% vs price)`);
     lines.push(`MOS Buy Zone: ≤$${r.iv.mos.toFixed(0)} (15% discount to mid)`);
@@ -266,6 +266,6 @@ export async function runAnalysis(tickers) {
   }
 
   const blocks  = results.map(formatStockBlock);
-  const message = `📊 *APEX BRIEFING*\n${new Date().toDateString()}\n\n${blocks.join('\n\n─────────────\n\n')}`;
+  const message = `📊 <b>APEX BRIEFING</b>\n${new Date().toDateString()}\n\n${blocks.join('\n\n─────────────\n\n')}\n\n🌐 <a href="https://apex-stocks.vercel.app">Open APEX Web App</a>`;
   return { results, message };
 }
