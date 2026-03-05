@@ -1585,8 +1585,10 @@ async function testTelegramAlert() {
   btn.textContent = 'TEST ALERT';
   btn.disabled = false;
 }
+
+function startWlRefresh() {
   if (wlRefreshTimer) clearInterval(wlRefreshTimer);
-  wlRefreshTimer = setInterval(refreshWatchlistPrices, 60000); // every 60s
+  wlRefreshTimer = setInterval(refreshWatchlistPrices, 60000);
 }
 
 function showWlNotif(msg, type) {
