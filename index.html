@@ -360,6 +360,129 @@
     font-size:10px; display:flex; align-items:center; justify-content:center;
     font-family:'Space Mono',monospace; font-weight:700;
   }
+
+  /* ── MOBILE RESPONSIVE ───────────────────────────────────────── */
+  /* ── MOBILE NAV TABS ─────────────────────────────────────────── */
+  .mob-nav {
+    display:none; position:fixed; bottom:0; left:0; right:0; z-index:200;
+    background:var(--bg2); border-top:1px solid var(--border);
+    padding:0; height:56px;
+  }
+  .mob-nav-inner { display:flex; height:100%; }
+  .mob-tab {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:3px; background:none; border:none; color:var(--muted);
+    font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px;
+    cursor:pointer; transition:color .2s; padding:0; text-transform:uppercase;
+  }
+  .mob-tab svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; }
+  .mob-tab.active { color:var(--accent); }
+  .mob-tab.active svg { filter:drop-shadow(0 0 4px rgba(0,212,255,0.5)); }
+
+  /* ── MOBILE RESPONSIVE ───────────────────────────────────────── */
+  @media (max-width: 768px) {
+    header { padding:11px 16px; }
+    .header-mid { display:none; }
+    .logo { font-size:17px; letter-spacing:4px; }
+    .live-badge { font-size:9px; gap:5px; }
+
+    /* Show mobile nav */
+    .mob-nav { display:flex; }
+
+    /* Main layout: single column, above bottom nav */
+    .main { grid-template-columns:1fr; min-height:unset; padding-bottom:56px; }
+
+    /* Sidebar hidden by default, shown via tab */
+    .sidebar {
+      display:none; border-right:none;
+      border-bottom:none; overflow-y:visible;
+    }
+    .sidebar.mob-active { display:flex; }
+
+    /* Chart area hidden by default, shown via tab */
+    .chart-area {
+      display:none; min-height:unset;
+    }
+    .chart-area.mob-active { display:flex; }
+
+    /* When wl open on mobile - full screen */
+    .wl-panel { width:100vw; border-left:none; }
+    body.wl-open .chart-area { padding-right:0; }
+
+    /* Watchlist toggle repositioned */
+    .wl-toggle {
+      bottom:64px; top:unset; right:12px; transform:none;
+      writing-mode:horizontal-tb; border-radius:24px;
+      padding:9px 16px; font-size:10px; letter-spacing:1px;
+    }
+
+    /* Sidebar blocks */
+    .sb-block { padding:14px 16px; }
+    .sb-label { font-size:10px; margin-bottom:10px; }
+
+    /* Hero */
+    .hero-ticker { font-size:26px; }
+    .hero-price  { font-size:28px; }
+    .hero-chg    { font-size:12px; }
+    .hero-name   { font-size:11px; }
+    .hero-sub    { font-size:10px; }
+
+    /* Metrics */
+    .mc-lbl { font-size:9px; }
+    .mc-val  { font-size:13px; }
+
+    /* IV */
+    .iv-num { font-size:20px; }
+    .iv-row-name { font-size:9px; }
+    .iv-row-val  { font-size:11px; }
+    .iv-row-desc { font-size:8px; }
+
+    /* Rec */
+    .rec-action { font-size:18px; }
+    .rec-body   { font-size:11px; }
+    .tgt-val    { font-size:14px; }
+
+    /* Options */
+    .opt-strike { font-size:17px; }
+    .opt-detail { font-size:11px; }
+    .opt-type   { font-size:9px; }
+
+    /* Chart */
+    #chart-wrap { min-height:280px; }
+    .chart-topbar { padding:10px 14px; flex-wrap:wrap; gap:6px; }
+    .ohlcv { gap:8px; font-size:10px; flex-wrap:wrap; }
+    .chart-title { font-size:10px; }
+
+    /* Indicators */
+    .inds-bar { gap:10px; padding:10px 14px; }
+    .ind { min-width:58px; }
+    .ind-lbl { font-size:9px; }
+    .ind-val { font-size:12px; }
+    .ind-sig { font-size:8px; }
+
+    /* Levels */
+    .levels-bar { padding:10px 14px; }
+    .levels-title { font-size:9px; }
+    .lchip { font-size:10px; padding:5px 8px; }
+
+    /* AI */
+    .ai-block { padding:14px 16px; }
+    .ai-body  { font-size:13px; padding:14px 16px; line-height:1.85; }
+    .ai-title { font-size:12px; }
+    .ai-chip  { font-size:9px; }
+
+    /* Search */
+    .search-input { font-size:14px; padding:10px 12px; }
+    .search-btn   { font-size:12px; padding:10px 14px; }
+    .tf-btn       { font-size:10px; }
+  }
+
+  @media (max-width: 480px) {
+    .hero-ticker { font-size:22px; }
+    .hero-price  { font-size:24px; }
+    #chart-wrap  { min-height:240px; }
+    .opt-strike  { font-size:15px; }
+  }
 </style>
 </head>
 <body>
@@ -1887,6 +2010,86 @@ document.getElementById('wlInputEl').addEventListener('keydown', e => {
 </div>
 
 <div class="wl-notif" id="wlNotif"></div>
+
+<!-- ── MOBILE BOTTOM NAV ── -->
+<nav class="mob-nav">
+  <div class="mob-nav-inner">
+    <button class="mob-tab active" id="mobTabStats" onclick="mobSwitch('stats')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
+      STATS
+    </button>
+    <button class="mob-tab" id="mobTabChart" onclick="mobSwitch('chart')">
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      CHART
+    </button>
+    <button class="mob-tab" id="mobTabWatch" onclick="mobSwitch('watch')">
+      <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      WATCH
+    </button>
+  </div>
+</nav>
+
+<script>
+// ── MOBILE TAB SWITCHER ──────────────────────────────────────────
+function mobSwitch(tab) {
+  if (window.innerWidth > 768) return;
+
+  const sidebar   = document.querySelector('.sidebar');
+  const chartArea = document.querySelector('.chart-area');
+  const wlPanel   = document.getElementById('wlPanel');
+
+  // Reset all
+  sidebar.classList.remove('mob-active');
+  chartArea.classList.remove('mob-active');
+  wlPanel.classList.remove('open');
+  document.body.classList.remove('wl-open');
+
+  document.querySelectorAll('.mob-tab').forEach(t => t.classList.remove('active'));
+
+  if (tab === 'stats') {
+    sidebar.classList.add('mob-active');
+    document.getElementById('mobTabStats').classList.add('active');
+  } else if (tab === 'chart') {
+    chartArea.classList.add('mob-active');
+    document.getElementById('mobTabChart').classList.add('active');
+    // Redraw chart if needed
+    if (window.lastTicker) setTimeout(() => drawChart(candleData), 100);
+  } else if (tab === 'watch') {
+    wlPanel.classList.add('open');
+    document.body.classList.add('wl-open');
+    document.getElementById('mobTabWatch').classList.add('active');
+  }
+}
+
+// On mobile load — show stats tab by default
+function initMobileLayout() {
+  if (window.innerWidth <= 768) {
+    document.querySelector('.sidebar').classList.add('mob-active');
+    document.querySelector('.chart-area').classList.remove('mob-active');
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 768) {
+    // Restore desktop layout
+    document.querySelector('.sidebar').classList.remove('mob-active');
+    document.querySelector('.chart-area').classList.remove('mob-active');
+  } else {
+    initMobileLayout();
+  }
+});
+
+initMobileLayout();
+
+// After analysis on mobile — auto-switch to chart tab
+const origAnalyzeStock = analyzeStock;
+analyzeStock = async function() {
+  await origAnalyzeStock.apply(this, arguments);
+  if (window.innerWidth <= 768) {
+    setTimeout(() => mobSwitch('chart'), 300);
+  }
+};
+</script>
 
 </body>
 </html>
