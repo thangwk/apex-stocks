@@ -95,8 +95,13 @@ export async function getCache(type, symbol) {
     const redis = await getClient();
     const raw   = await redis.get(cacheKey(type, symbol));
     if (!raw) return null;
-    const { data, cachedAt, ttl } = JSON.parse(raw);
-    // Check if expired
+    const parsed = JSON.parse(raw);
+    // Handle old format (raw object, no wrapper) — treat as expired
+    if (!parsed.hasOwnProperty('cachedAt')) {
+      await redis.del(cacheKey(type, symbol));
+      return null;
+    }
+    const { data, cachedAt, ttl } = parsed;
     if (Date.now() - cachedAt > ttl) {
       await redis.del(cacheKey(type, symbol));
       return null;
