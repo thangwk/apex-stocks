@@ -37,7 +37,7 @@ function getSectorMultiple(industry, table, def) {
 }
 
 // ── Intrinsic Value ──────────────────────────────────────────────
-export function calcIV(m, industry) {
+export function calcIV(m, industry, fmp) {
   const sectorPE   = getSectorMultiple(industry, SECTOR_PE, 18);
   const sectorPFCF = getSectorMultiple(industry, SECTOR_PFCF, 18);
   const sectorEV   = getSectorMultiple(industry, SECTOR_EV, 14);
@@ -62,6 +62,10 @@ export function calcIV(m, industry) {
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
   const methods = [];
+
+  // FMP DCF — professionally computed from SEC filings, highest weight
+  if (fmp?.dcf && fmp.dcf > 0)
+    methods.push({ name:'FMP DCF', value:fmp.dcf, weight:3 });
 
   // DCF on FCF
   if (fcfPS > 0) {
@@ -281,29 +285,62 @@ function formatStockBlock(r) {
     lines.push(`MOS Buy Zone: ≤$${r.iv.mos.toFixed(0)} (15% discount to mid)`);
   }
 
+  // FMP rating
+  if (r.fmp?.rating) {
+    lines.push(`\n🏦 <b>FMP Rating</b>: ${r.fmp.rating} — ${r.fmp.recommendation || '—'}`);
+  }
+
   return lines.join('\n');
 }
 
 // ── Run full analysis for a list of tickers ──
+export async function fetchFMP(symbol) {
+  try {
+    const { getCache, setCache, TTL } = await import('./_redis.js');
+    const cached = await getCache('fmp', symbol);
+    if (cached) return cached;
+
+    const apiKey = process.env.FMP_API_KEY;
+    const base   = 'https://financialmodelingprep.com/api/v3';
+    const [dcfRes, ratingRes] = await Promise.all([
+      fetch(`${base}/discounted-cash-flow/${symbol}?apikey=${apiKey}`),
+      fetch(`${base}/rating/${symbol}?apikey=${apiKey}`),
+    ]);
+    const dcfData    = await dcfRes.json();
+    const ratingData = await ratingRes.json();
+    const dcf        = Array.isArray(dcfData)    ? dcfData[0]    : dcfData;
+    const rating     = Array.isArray(ratingData) ? ratingData[0] : ratingData;
+
+    const result = {
+      dcf:            dcf?.dcf || null,
+      recommendation: rating?.ratingRecommendation || null,
+      rating:         rating?.rating || null,
+    };
+    if (result.dcf) await setCache('fmp', symbol, result, TTL.METRICS);
+    return result;
+  } catch(e) { return null; }
+}
+
 export async function runAnalysis(tickers) {
   const results = [];
 
   for (const ticker of tickers) {
     try {
-      const [quote, candles, metrics, profile] = await Promise.all([
+      const [quote, candles, metrics, profile, fmp] = await Promise.all([
         fetchQuote(ticker),
         fetchCandles(ticker),
         fetchFundamentals(ticker),
         fetchProfile(ticker),
+        fetchFMP(ticker),
       ]);
 
       if (!quote.c || !candles) { results.push({ ticker, signal:'ERROR', error:'No data' }); continue; }
 
       const analysis = analyzeCandles(candles, quote.c);
       const chg      = ((quote.c - quote.pc) / quote.pc * 100);
-      const iv       = calcIV(metrics, profile?.finnhubIndustry || '');
+      const iv       = calcIV(metrics, profile?.finnhubIndustry || '', fmp);
 
-      results.push({ ticker, price:quote.c, change:chg, iv, ...analysis });
+      results.push({ ticker, price:quote.c, change:chg, iv, fmp, ...analysis });
     } catch(e) {
       results.push({ ticker, signal:'ERROR', error:e.message });
     }

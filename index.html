@@ -538,6 +538,7 @@
         <div class="mc"><div class="mc-lbl">52W Low</div><div class="mc-val" id="m52L">—</div></div>
         <div class="mc"><div class="mc-lbl">Mkt Cap</div><div class="mc-val" id="mCap">—</div></div>
         <div class="mc"><div class="mc-lbl">Beta</div><div class="mc-val" id="mBeta">—</div></div>
+        <div class="mc" style="grid-column:1/-1"><div class="mc-lbl">FMP Rating</div><div class="mc-val" id="mFMPRating">—</div></div>
       </div>
     </div>
 
@@ -713,6 +714,13 @@ async function apiMetrics(symbol) {
   if (!r.ok) throw new Error(`Metrics fetch failed (${r.status})`);
   return r.json();
 }
+async function apiFMP(symbol) {
+  try {
+    const r = await fetch(`/api/fmp?symbol=${encodeURIComponent(symbol)}`);
+    if (!r.ok) return null;
+    return r.json();
+  } catch(e) { return null; } // FMP failure is non-fatal
+}
 
 function updateLiveBadge(q, p, m) {
   const badge = document.getElementById('liveBadge');
@@ -750,24 +758,26 @@ async function analyzeStock() {
 
   setBusy(true, 'FETCHING QUOTE...');
 
-  // Step 1 — fetch quote + profile + metrics together (needed for sidebar)
-  let quote, profile, metrics;
+  // Step 1 — fetch quote + profile + metrics + FMP together
+  let quote, profile, metrics, fmp;
   try {
-    const [q, p, m] = await Promise.all([
+    const [q, p, m, f] = await Promise.all([
       apiQuote(ticker),
       apiProfile(ticker),
       apiMetrics(ticker),
+      apiFMP(ticker),
     ]);
     if (!q.c || q.c === 0) throw new Error(`No data found for "${ticker}". Check the ticker symbol.`);
     quote   = q;
     profile = p;
     metrics = m.metric || {};
-    lastFundamentals = { quote, profile, metrics };
+    fmp     = f;
+    lastFundamentals = { quote, profile, metrics, fmp };
 
     updateLiveBadge(q, p, m);
     updateHero(ticker, quote, profile);
-    updateMetrics(quote, metrics);
-    updateIV(quote, metrics, profile);
+    updateMetrics(quote, metrics, fmp);
+    updateIV(quote, metrics, profile, fmp);
   } catch (e) {
     showToast(e.message);
     setBusy(false);
@@ -848,7 +858,7 @@ function updateHero(ticker, quote, profile) {
     'Open $' + quote.o.toFixed(2) + '  ·  High $' + quote.h.toFixed(2) + '  ·  Low $' + quote.l.toFixed(2);
 }
 
-function updateMetrics(quote, m) {
+function updateMetrics(quote, m, fmp) {
   const fmt = (v, prefix='', suffix='') => (v != null && v !== 0) ? prefix + Number(v).toFixed(2) + suffix : '—';
   const fmtB = (v) => {
     if (v == null || v === 0) return '—';
@@ -864,6 +874,19 @@ function updateMetrics(quote, m) {
   document.getElementById('m52L').textContent  = fmt(m['52WeekLow'],  '$');
   document.getElementById('mCap').textContent  = fmtB(m['marketCapitalization'] ? m['marketCapitalization'] * 1e6 : null);
   document.getElementById('mBeta').textContent = fmt(m['beta']);
+
+  // FMP rating
+  const fmpEl = document.getElementById('mFMPRating');
+  if (fmpEl && fmp?.rating) {
+    const rec = fmp.recommendation || '';
+    const col = rec.includes('Strong Buy') ? 'var(--bull)'
+              : rec.includes('Buy')        ? 'var(--bull)'
+              : rec.includes('Sell')       ? 'var(--bear)'
+              : 'var(--accent)';
+    fmpEl.innerHTML = `<span style="color:${col};font-weight:700">${fmp.rating}</span> <span style="color:var(--muted);font-size:9px">${rec}</span>`;
+  } else if (fmpEl) {
+    fmpEl.textContent = '—';
+  }
 }
 
 // ── SECTOR P/E BENCHMARKS ──────────────────────────────────────────
@@ -897,7 +920,7 @@ function getSectorMultiple(industry, table, def) {
 }
 function isHighGrowth(growth) { return growth > 15; }
 
-function updateIV(quote, m, profile) {
+function updateIV(quote, m, profile, fmp) {
   const price    = quote.c;
   const industry = profile?.finnhubIndustry || '';
   const sectorPE   = getSectorMultiple(industry, SECTOR_PE, 18);
@@ -933,6 +956,13 @@ function updateIV(quote, m, profile) {
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
   const methods = [];
+
+  // ── Method 0: FMP DCF (professionally computed) ──────────────────
+  // Highest weight — based on actual SEC filings via FMP
+  if (fmp?.dcf && fmp.dcf > 0) {
+    methods.push({ name:'FMP DCF', short:'FMP', value:fmp.dcf, weight:3,
+      desc:`Professionally computed DCF from FMP · based on SEC filing cash flows` });
+  }
 
   // ── Method 1: FCF-based DCF (10yr) ──────────────────────────────
   if (fcfPS > 0) {
