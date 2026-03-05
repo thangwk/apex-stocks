@@ -2,6 +2,8 @@ import { getCache, setCache } from './_redis.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  // Prevent browser/CDN from caching — we handle caching via Redis ourselves
+  res.setHeader('Cache-Control', 'no-store');
   const { symbol, tf } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 

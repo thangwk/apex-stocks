@@ -837,17 +837,21 @@ async function loadCandles(ticker) {
       </div>`;
   }
 
-  const resp = await fetch(`/api/candles?symbol=${encodeURIComponent(ticker)}&tf=${currentTF === 'Y' ? 'full' : 'compact'}`);
-  const data = await resp.json();
-
-  // Hide loading spinner
-  const loadingEl = document.getElementById('chartLoading');
-  if (loadingEl) loadingEl.classList.remove('on');
+  let resp, data;
+  try {
+    resp = await fetch(`/api/candles?symbol=${encodeURIComponent(ticker)}&tf=${currentTF === 'Y' ? 'full' : 'compact'}`);
+    data = await resp.json();
+  } catch(e) {
+    throw new Error(`Chart fetch failed: ${e.message}`);
+  } finally {
+    const loadingEl = document.getElementById('chartLoading');
+    if (loadingEl) loadingEl.classList.remove('on');
+  }
 
   if (!resp.ok) {
-    const msg = resp.status === 429
-      ? '⚠ Twelve Data rate limit hit. Please wait a moment and try again.'
-      : (data.error || `Chart error (${resp.status})`);
+    const msg = resp.status === 429 || resp.status === 304
+      ? '⚠ Rate limit hit. Try again in a moment.'
+      : (data?.error || `Chart error (${resp.status})`);
     throw new Error(msg);
   }
 
