@@ -821,6 +821,11 @@ async function analyzeStock() {
 
   // Both run concurrently — neither blocks the other
   await Promise.allSettled([chartPromise, aiPromise]);
+
+  // On mobile, auto-switch to chart tab after analysis completes
+  if (window.innerWidth <= 768) {
+    setTimeout(() => mobSwitch('chart'), 300);
+  }
 }
 
 async function loadCandles(ticker) {
@@ -2397,15 +2402,6 @@ if (window.visualViewport) {
 }
 
 initMobileLayout();
-
-// After analysis on mobile — auto-switch to chart tab
-const origAnalyzeStock = analyzeStock;
-analyzeStock = async function() {
-  await origAnalyzeStock.apply(this, arguments);
-  if (window.innerWidth <= 768) {
-    setTimeout(() => mobSwitch('chart'), 300);
-  }
-};
 </script>
 
 </body>
