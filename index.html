@@ -303,13 +303,17 @@
     </div>
 
     <div class="sb-block">
-      <div class="sb-label">Intrinsic Value (DCF est.)</div>
+      <div class="sb-label">Intrinsic Value (Multi-Method)</div>
       <div class="iv-row">
         <div class="iv-num" id="ivNum">—</div>
         <div class="iv-badge fair" id="ivBadge">—</div>
       </div>
       <div class="bar-labels"><span>Margin of Safety</span><span id="ivPct">—</span></div>
       <div class="bar-track"><div class="bar-fill" id="ivFill" style="width:0%"></div></div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:7px;line-height:1.6;">
+        <div id="ivMethod" style="color:var(--accent);letter-spacing:1px;">—</div>
+        <div id="ivConf" style="margin-top:2px;">—</div>
+      </div>
     </div>
 
     <div class="sb-block">
@@ -579,20 +583,91 @@ function updateMetrics(quote, m) {
 }
 
 function updateIV(quote, m) {
-  const price = quote.c;
-  const eps   = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
-  const bvps  = m['bookValuePerShareAnnual'] || 0;
-  const pe    = m['peBasicExclExtraTTM'] || 20;
+  const price  = quote.c;
+  const eps    = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
+  const bvps   = m['bookValuePerShareAnnual'] || 0;
+  const pe     = m['peBasicExclExtraTTM'] || 0;
+  const roe    = m['roeRfy'] || m['roeTTM'] || 0;           // Return on Equity %
+  const growth = Math.min(Math.max(m['revenueGrowth3Y'] || m['epsGrowth3Y'] || 5, 0), 30);
+  const fcfPS  = m['freeCashFlowPerShareTTM'] || 0;
 
-  let iv = 0;
+  const methods = [];
+
+  // ── Method 1: Graham Number ──────────────────────────────
+  // √(22.5 × EPS × BVPS) — works for profitable value stocks
   if (eps > 0 && bvps > 0) {
-    iv = Math.sqrt(22.5 * Math.abs(eps) * Math.abs(bvps)); // Graham Number
-  } else if (eps > 0) {
-    iv = eps * 20; // Fair P/E of 20
-  } else {
-    iv = price * (18 / Math.max(pe, 1)); // Normalise to P/E 18
+    const gn = Math.sqrt(22.5 * eps * bvps);
+    methods.push({ name: 'Graham Number', value: gn, weight: 1 });
   }
 
+  // ── Method 2: Graham Growth Formula ─────────────────────
+  // EPS × (8.5 + 2g) × 4.4/Y — accounts for growth rate
+  // Using Y = 4.8 (approx current AAA bond yield)
+  if (eps > 0) {
+    const gg = eps * (8.5 + 2 * growth) * (4.4 / 4.8);
+    methods.push({ name: 'Graham Growth', value: gg, weight: 1.5 });
+  }
+
+  // ── Method 3: DCF (simplified) ──────────────────────────
+  // Use FCF/share if available, else EPS as proxy
+  // Value = FCF × (1+g)^5 / (r-g), r=9% discount rate
+  const cashFlow = fcfPS > 0 ? fcfPS : eps > 0 ? eps * 0.8 : 0;
+  if (cashFlow > 0) {
+    const r = 0.09, g = growth / 100;
+    const safeG = Math.min(g, r - 0.02); // g must be < r
+    const dcf = cashFlow * (1 + safeG) * (1 - Math.pow((1 + safeG) / (1 + r), 10)) / (r - safeG);
+    if (dcf > 0 && isFinite(dcf)) {
+      methods.push({ name: 'DCF (10yr)', value: dcf, weight: 2 });
+    }
+  }
+
+  // ── Method 4: P/E Mean Reversion ────────────────────────
+  // Fair value = EPS × sector-appropriate P/E
+  // Use historical market avg P/E of 17, adjusted for growth
+  if (eps > 0) {
+    const fairPE = Math.min(17 + growth * 0.5, 40); // growth premium capped
+    const per = eps * fairPE;
+    methods.push({ name: 'P/E Reversion', value: per, weight: 1 });
+  }
+
+  // ── Method 5: Price/Book fair value ─────────────────────
+  // Fair P/B based on ROE: P/B = ROE / cost_of_equity
+  if (bvps > 0 && roe > 0) {
+    const coe = 0.09; // cost of equity 9%
+    const fairPB = Math.min((roe / 100) / coe, 8); // cap at 8× book
+    const pbv = bvps * fairPB;
+    if (pbv > 0) methods.push({ name: 'P/B (ROE)', value: pbv, weight: 1 });
+  }
+
+  // ── Combine: weighted average, drop outliers ─────────────
+  if (methods.length === 0) {
+    // Last resort: normalise current P/E to market average
+    if (pe > 0 && eps > 0) {
+      const iv = eps * 17;
+      renderIV(price, iv, ['P/E normalisation'], 0.5);
+    } else {
+      document.getElementById('ivNum').textContent = 'N/A';
+      document.getElementById('ivBadge').textContent = '—';
+      document.getElementById('ivPct').textContent = '—';
+      document.getElementById('ivMethod').textContent = 'Insufficient data';
+    }
+    return;
+  }
+
+  // Filter out extreme outliers (> 3× median)
+  const vals = methods.map(m => m.value).sort((a,b) => a-b);
+  const median = vals[Math.floor(vals.length / 2)];
+  const filtered = methods.filter(m => m.value > 0 && m.value < median * 3 && m.value > median / 3);
+  const pool = filtered.length > 0 ? filtered : methods;
+
+  const totalWeight = pool.reduce((s, m) => s + m.weight, 0);
+  const iv = pool.reduce((s, m) => s + m.value * m.weight, 0) / totalWeight;
+  const methodNames = pool.map(m => m.name);
+
+  renderIV(price, iv, methodNames, pool.length);
+}
+
+function renderIV(price, iv, methodNames, count) {
   if (!iv || iv <= 0 || !isFinite(iv)) {
     document.getElementById('ivNum').textContent = 'N/A';
     document.getElementById('ivBadge').textContent = '—';
@@ -604,40 +679,59 @@ function updateIV(quote, m) {
 
   document.getElementById('ivNum').textContent = '$' + iv.toFixed(2);
   document.getElementById('ivPct').textContent = Math.abs(margin).toFixed(1) + '%';
+  document.getElementById('ivMethod').textContent = methodNames.join(' · ');
 
   const fill  = document.getElementById('ivFill');
   const badge = document.getElementById('ivBadge');
 
-  if (margin > 5) {
+  if (margin > 10) {
     badge.textContent = 'UNDERVALUED'; badge.className = 'iv-badge under';
     fill.style.background = 'var(--bull)';
-  } else if (margin < -5) {
+  } else if (margin > 3) {
+    badge.textContent = 'SLIGHT DISC.'; badge.className = 'iv-badge under';
+    fill.style.background = 'var(--bull)';
+  } else if (margin < -15) {
     badge.textContent = 'OVERVALUED'; badge.className = 'iv-badge over';
+    fill.style.background = 'var(--bear)';
+  } else if (margin < -5) {
+    badge.textContent = 'SLIGHT PREM.'; badge.className = 'iv-badge over';
     fill.style.background = 'var(--bear)';
   } else {
     badge.textContent = 'FAIR VALUE'; badge.className = 'iv-badge fair';
     fill.style.background = 'var(--accent)';
   }
-  fill.style.width = Math.min(Math.abs(margin) * 2.5, 100) + '%';
+  fill.style.width = Math.min(Math.abs(margin) * 2, 100) + '%';
+
+  // Confidence indicator based on number of methods used
+  const conf = count >= 3 ? 'HIGH' : count === 2 ? 'MEDIUM' : 'LOW';
+  document.getElementById('ivConf').textContent = `${conf} CONFIDENCE · ${count} METHOD${count > 1 ? 'S' : ''}`;
 
   // Recommendation
   const sl = (price * 0.96).toFixed(2);
-  const pt = (iv  * 0.97).toFixed(2);
+  const pt = (iv * 0.97).toFixed(2);
   document.getElementById('tgtSL').textContent = '$' + sl;
   document.getElementById('tgtPT').textContent = '$' + pt;
 
-  const recCard = document.getElementById('recCard');
+  const recCard   = document.getElementById('recCard');
   const recAction = document.getElementById('recAction');
-  const recBody = document.getElementById('recBody');
+  const recBody   = document.getElementById('recBody');
 
-  if (margin > 5) {
+  if (margin > 10) {
     recCard.className = 'rec-card buy'; recAction.className = 'rec-action buy';
     recAction.textContent = 'BUY';
     recBody.textContent = `Trading ${margin.toFixed(1)}% below intrinsic value. Risk/reward favours a long entry here.`;
-  } else if (margin < -5) {
+  } else if (margin > 3) {
+    recCard.className = 'rec-card buy'; recAction.className = 'rec-action buy';
+    recAction.textContent = 'WATCH';
+    recBody.textContent = `Slight discount to fair value. Consider scaling in on dips toward support.`;
+  } else if (margin < -15) {
     recCard.className = 'rec-card sell'; recAction.className = 'rec-action sell';
     recAction.textContent = 'SELL / HEDGE';
     recBody.textContent = `Trading ${Math.abs(margin).toFixed(1)}% above intrinsic value. Consider trimming or buying protective puts.`;
+  } else if (margin < -5) {
+    recCard.className = 'rec-card sell'; recAction.className = 'rec-action sell';
+    recAction.textContent = 'CAUTION';
+    recBody.textContent = `Trading at a premium to fair value. Avoid chasing — wait for a pullback.`;
   } else {
     recCard.className = 'rec-card hold'; recAction.className = 'rec-action hold';
     recAction.textContent = 'HOLD';
@@ -648,15 +742,15 @@ function updateIV(quote, m) {
   const c1 = (Math.ceil(price / 5) * 5).toFixed(0);
   const c2 = (+c1 + 5).toFixed(0);
   const p1 = (Math.floor(price / 5) * 5).toFixed(0);
-  document.getElementById('oCall').textContent   = '$' + c1 + 'C';
-  document.getElementById('oCallD').textContent  = 'Exp: ~30 DTE · OTM call';
-  document.getElementById('oPut').textContent    = '$' + p1 + 'P';
-  document.getElementById('oPutD').textContent   = 'Exp: ~21 DTE · Protective put';
-  document.getElementById('oSpread').textContent = '$' + c1 + '/$' + c2 + 'C';
-  document.getElementById('oSpreadD').textContent= 'Defined risk bull spread';
+  document.getElementById('oCall').textContent    = '$' + c1 + 'C';
+  document.getElementById('oCallD').textContent   = 'Exp: ~30 DTE · OTM call';
+  document.getElementById('oPut').textContent     = '$' + p1 + 'P';
+  document.getElementById('oPutD').textContent    = 'Exp: ~21 DTE · Protective put';
+  document.getElementById('oSpread').textContent  = '$' + c1 + '/$' + c2 + 'C';
+  document.getElementById('oSpreadD').textContent = 'Defined risk bull spread';
   const ivr = Math.floor(20 + Math.random() * 55);
-  document.getElementById('oIVR').textContent    = ivr + 'th %ile';
-  document.getElementById('oIVRD').textContent   = ivr < 30 ? 'Low IV — buy premium' : ivr > 60 ? 'High IV — sell premium' : 'Moderate IV';
+  document.getElementById('oIVR').textContent     = ivr + 'th %ile';
+  document.getElementById('oIVRD').textContent    = ivr < 30 ? 'Low IV — buy premium' : ivr > 60 ? 'High IV — sell premium' : 'Moderate IV';
 }
 
 function updateLevels(data, quote) {
