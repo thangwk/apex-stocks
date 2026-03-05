@@ -1,6 +1,3 @@
-// Simple Redis client using native fetch + Redis REST-like commands via ioredis
-// We use the `redis` npm package via dynamic import for Vercel serverless
-
 import { createClient } from 'redis';
 
 let client = null;
@@ -13,31 +10,59 @@ async function getClient() {
   return client;
 }
 
-const WATCHLIST_KEY = 'apex:watchlist';
+// ── Per-user watchlist keys ──────────────────────────────────────
+// apex:watchlist:<chatId>  →  ["AAPL","TSLA"]
+// apex:users               →  ["111","222","333"]  (all known chat IDs)
 
-export async function getWatchlist() {
+function userKey(chatId) {
+  return `apex:watchlist:${chatId}`;
+}
+
+// Get all registered user chat IDs
+export async function getAllUsers() {
   const redis = await getClient();
-  const data  = await redis.get(WATCHLIST_KEY);
+  const data  = await redis.get('apex:users');
   return data ? JSON.parse(data) : [];
 }
 
-export async function saveWatchlist(tickers) {
+async function registerUser(chatId) {
   const redis = await getClient();
-  await redis.set(WATCHLIST_KEY, JSON.stringify(tickers));
+  const users = await getAllUsers();
+  if (!users.includes(chatId)) {
+    users.push(chatId);
+    await redis.set('apex:users', JSON.stringify(users));
+  }
 }
 
-export async function addTicker(ticker) {
-  const list = await getWatchlist();
+// ── Per-user CRUD ────────────────────────────────────────────────
+export async function getWatchlist(chatId) {
+  const redis = await getClient();
+  const data  = await redis.get(userKey(chatId));
+  return data ? JSON.parse(data) : [];
+}
+
+export async function saveWatchlist(chatId, tickers) {
+  const redis = await getClient();
+  await redis.set(userKey(chatId), JSON.stringify(tickers));
+  await registerUser(chatId); // ensure user is tracked for cron
+}
+
+export async function addTicker(chatId, ticker) {
+  const list = await getWatchlist(chatId);
   if (!list.includes(ticker)) {
     list.push(ticker);
-    await saveWatchlist(list);
+    await saveWatchlist(chatId, list);
   }
   return list;
 }
 
-export async function removeTicker(ticker) {
-  const list = await getWatchlist();
+export async function removeTicker(chatId, ticker) {
+  const list = await getWatchlist(chatId);
   const updated = list.filter(t => t !== ticker);
-  await saveWatchlist(updated);
+  await saveWatchlist(chatId, updated);
   return updated;
+}
+
+export async function clearWatchlist(chatId) {
+  await saveWatchlist(chatId, []);
 }

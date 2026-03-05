@@ -10,6 +10,8 @@ export default async function handler(req, res) {
   const { tickers } = req.body || {};
   if (!Array.isArray(tickers)) return res.status(400).json({ error: 'tickers array required' });
 
-  await saveWatchlist(tickers);
+  // Web app always syncs to the owner's chat ID
+  const ownerChatId = process.env.TELEGRAM_CHAT_ID;
+  await saveWatchlist(ownerChatId, tickers);
   res.status(200).json({ ok: true, count: tickers.length });
 }
