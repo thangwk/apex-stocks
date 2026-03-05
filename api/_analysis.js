@@ -1,4 +1,4 @@
-// ── Shared technical analysis logic ──
+// ── Shared technical + fundamental analysis ──
 
 function calcEMA(data, period) {
   const k = 2 / (period + 1);
@@ -23,6 +23,79 @@ function calcRSI(data, period = 14) {
     out[i] = 100 - 100/(1 + ag/Math.max(al, 1e-9));
   }
   return out;
+}
+
+// ── Sector benchmarks ──
+const SECTOR_PE = {
+  'Technology':35,'Software':40,'Semiconductors':30,'Internet':45,'Hardware':25,
+  'Financial':14,'Banking':12,'Insurance':13,
+  'Healthcare':22,'Biotechnology':28,'Pharmaceutical':20,
+  'Consumer Cyclical':22,'Retail':20,'Automotive':15,
+  'Consumer Defensive':20,'Food':22,'Energy':14,'Oil':13,
+  'Utilities':17,'Real Estate':30,'Industrial':20,
+  'Aerospace':22,'Materials':18,'Communication':20,
+};
+const SECTOR_EV = {
+  'Technology':20,'Software':22,'Semiconductor':18,'Internet':25,
+  'Financial':10,'Banking':9,'Healthcare':14,'Biotechnology':18,
+  'Energy':7,'Oil':7,'Utilities':9,'Real Estate':16,
+  'Consumer':13,'Retail':11,'Industrial':12,
+};
+function getSectorMultiple(industry, table, def) {
+  if (!industry) return def;
+  const key = Object.keys(table).find(k => industry.toLowerCase().includes(k.toLowerCase()));
+  return key ? table[key] : def;
+}
+
+// ── Intrinsic Value calculation ──
+function calcIV(metrics, industry) {
+  const eps    = metrics.epsBasicExclExtraAnnual || metrics.epsTTM || 0;
+  const bvps   = metrics.bookValuePerShareAnnual || 0;
+  const roe    = metrics.roeRfy || metrics.roeTTM || 0;
+  const growth = Math.min(Math.max(metrics.revenueGrowth3Y || metrics.epsGrowth3Y || 5, 0), 40);
+  const fcfPS  = metrics.freeCashFlowPerShareTTM || 0;
+  const ebitda = metrics.ebitdaPerShare || (eps > 0 ? eps * 1.5 : 0);
+  const sectorPE = getSectorMultiple(industry, SECTOR_PE, 18);
+  const sectorEV = getSectorMultiple(industry, SECTOR_EV, 13);
+
+  const methods = [];
+
+  if (eps > 0 && bvps > 0)
+    methods.push(Math.sqrt(22.5 * eps * bvps));
+
+  if (eps > 0 && growth > 0)
+    methods.push(eps * (8.5 + 2 * growth) * (4.4 / 4.8));
+
+  const cf = fcfPS > 0 ? fcfPS : eps > 0 ? eps * 0.8 : 0;
+  if (cf > 0) {
+    const r = 0.09, g = Math.min(growth/100, 0.07);
+    const dcf = cf * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
+    if (dcf > 0 && isFinite(dcf)) methods.push(dcf * 2); // weight DCF double
+  }
+
+  if (eps > 0) methods.push(eps * sectorPE * 1.5); // weight sector PE 1.5x
+
+  if (eps > 0 && growth > 0)
+    methods.push(eps * Math.min(growth, 50) * 1.5); // PEG weight 1.5x
+
+  if (ebitda > 0) methods.push(ebitda * sectorEV * 1.5); // EV/EBITDA weight 1.5x
+
+  if (bvps > 0 && roe > 0)
+    methods.push(bvps * Math.min((roe/100)/0.09, 8));
+
+  if (methods.length === 0) return null;
+
+  const sorted = [...methods].sort((a,b) => a-b);
+  const median = sorted[Math.floor(sorted.length/2)];
+  const filtered = methods.filter(v => v > median/3.5 && v < median*3.5);
+  const pool = filtered.length > 0 ? filtered : methods;
+
+  const mid = pool.reduce((s,v) => s+v, 0) / pool.length;
+  const lo  = Math.min(...pool);
+  const hi  = Math.max(...pool);
+  const mos = mid * 0.85;
+
+  return { mid, lo, hi, mos, sectorPE };
 }
 
 export function analyzeCandles(candles, currentPrice) {
@@ -88,10 +161,41 @@ export async function fetchCandles(symbol) {
 }
 
 export async function fetchQuote(symbol) {
+  // Twelve Data quote
   const r = await fetch(
-    `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${process.env.FINNHUB_API_KEY}`
+    `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
   );
-  return r.json();
+  const d = await r.json();
+  if (d.status === 'error') throw new Error(d.message);
+  return { c: parseFloat(d.close), pc: parseFloat(d.previous_close), o: parseFloat(d.open), h: parseFloat(d.high), l: parseFloat(d.low) };
+}
+
+export async function fetchFundamentals(symbol) {
+  // Yahoo Finance fundamentals (no key needed)
+  try {
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=defaultKeyStatistics,financialData,summaryDetail,assetProfile`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    const d = await r.json();
+    const res = d?.quoteSummary?.result?.[0] || {};
+    const ks  = res.defaultKeyStatistics || {};
+    const fd  = res.financialData || {};
+    const sd  = res.summaryDetail || {};
+    const ap  = res.assetProfile || {};
+    return {
+      eps:      ks.trailingEps?.raw || 0,
+      bvps:     ks.bookValue?.raw || 0,
+      pe:       sd.trailingPE?.raw || 0,
+      growth:   fd.revenueGrowth?.raw ? fd.revenueGrowth.raw * 100 : (fd.earningsGrowth?.raw ? fd.earningsGrowth.raw * 100 : 5),
+      fcfPS:    (fd.freeCashflow?.raw && ks.sharesOutstanding?.raw) ? fd.freeCashflow.raw / ks.sharesOutstanding.raw : 0,
+      ebitda:   (fd.ebitda?.raw && ks.sharesOutstanding?.raw) ? fd.ebitda.raw / ks.sharesOutstanding.raw : 0,
+      roe:      fd.returnOnEquity?.raw ? fd.returnOnEquity.raw * 100 : 0,
+      industry: ap.industry || ap.sector || '',
+    };
+  } catch(e) {
+    return { eps:0, bvps:0, pe:0, growth:5, fcfPS:0, ebitda:0, roe:0, industry:'' };
+  }
 }
 
 export async function sendTelegram(chatId, message) {
@@ -107,33 +211,55 @@ export async function sendTelegram(chatId, message) {
 }
 
 export async function runAnalysis(tickers) {
-  const emoji = { BUY: '🟢', SELL: '🔴', HOLD: '⚪', WATCH: '🟡', ERROR: '⛔' };
+  const emoji = { BUY:'🟢', SELL:'🔴', HOLD:'⚪', WATCH:'🟡', ERROR:'⛔' };
   const results = [];
 
   for (const ticker of tickers) {
     try {
-      const [quote, candles] = await Promise.all([fetchQuote(ticker), fetchCandles(ticker)]);
-      if (!quote.c || !candles) { results.push({ ticker, signal: 'ERROR', error: 'No data' }); continue; }
+      const [quote, candles, fund] = await Promise.all([
+        fetchQuote(ticker),
+        fetchCandles(ticker),
+        fetchFundamentals(ticker),
+      ]);
+      if (!quote.c || !candles) { results.push({ ticker, signal:'ERROR', error:'No data' }); continue; }
+
       const analysis = analyzeCandles(candles, quote.c);
-      const chg = ((quote.c - quote.pc) / quote.pc * 100);
-      results.push({ ticker, price: quote.c, change: chg, ...analysis });
+      const chg      = ((quote.c - quote.pc) / quote.pc * 100);
+      const iv       = calcIV(fund, fund.industry);
+
+      results.push({ ticker, price:quote.c, change:chg, fund, iv, ...analysis });
     } catch(e) {
-      results.push({ ticker, signal: 'ERROR', error: e.message });
+      results.push({ ticker, signal:'ERROR', error:e.message });
     }
   }
 
   const lines = results.map(r => {
     if (r.signal === 'ERROR') return `${emoji.ERROR} *${r.ticker}* — Error: ${r.error}`;
+
     const chgStr = (r.change >= 0 ? '+' : '') + r.change.toFixed(2) + '%';
-    const topReasons = r.reasons.slice(0, 2).join(' · ');
+    const topReasons = r.reasons.slice(0, 2).join(' · ') || 'Neutral momentum';
+
+    // IV section
+    let ivLine = '';
+    if (r.iv) {
+      const marginPct = ((r.iv.mid - r.price) / r.price * 100);
+      const ivVerdict = marginPct > 10 ? '🟢 UNDERVALUED'
+        : marginPct > 3  ? '🟡 SLIGHT DISCOUNT'
+        : marginPct < -15 ? '🔴 OVERVALUED'
+        : marginPct < -5  ? '🟠 SLIGHT PREMIUM'
+        : '⚪ FAIR VALUE';
+      ivLine = `IV Range: $${r.iv.lo.toFixed(0)}–$${r.iv.hi.toFixed(0)} | Mid: $${r.iv.mid.toFixed(0)} ${ivVerdict}\nMOS Buy Zone: ≤$${r.iv.mos.toFixed(0)} (15% discount)`;
+    }
+
     return [
       `${emoji[r.signal] || '⚪'} *${r.ticker}* — ${r.signal}`,
       `Price: $${r.price.toFixed(2)} (${chgStr})`,
       topReasons,
       `Support: $${r.support?.toFixed(2)} | Resistance: $${r.resist?.toFixed(2)}`,
-    ].join('\n');
+      ivLine,
+    ].filter(Boolean).join('\n');
   });
 
-  const message = `📊 *APEX WATCHLIST BRIEFING*\n${new Date().toDateString()}\n\n${lines.join('\n\n')}`;
+  const message = `📊 *APEX DAILY BRIEFING*\n${new Date().toDateString()}\n\n${lines.join('\n\n')}`;
   return { results, message };
 }
