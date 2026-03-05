@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 <title>APEX — Stock Intelligence</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -366,18 +366,24 @@
   .mob-nav {
     display:none; position:fixed; bottom:0; left:0; right:0; z-index:200;
     background:var(--bg2); border-top:1px solid var(--border);
-    padding:0; height:56px;
+    padding:0; height:64px;
   }
-  .mob-nav-inner { display:flex; height:100%; }
+  .mob-nav-inner { display:flex; height:100%; max-width:480px; margin:0 auto; width:100%; }
   .mob-tab {
     flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:3px; background:none; border:none; color:var(--muted);
-    font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px;
-    cursor:pointer; transition:color .2s; padding:0; text-transform:uppercase;
+    gap:5px; background:none; border:none; color:var(--muted);
+    font-family:'Space Mono',monospace; font-size:10px; letter-spacing:1.5px;
+    cursor:pointer; transition:color .2s; padding:8px 0 6px; text-transform:uppercase;
+    position:relative;
   }
-  .mob-tab svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; }
+  .mob-tab svg { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; transition:transform .2s; }
   .mob-tab.active { color:var(--accent); }
-  .mob-tab.active svg { filter:drop-shadow(0 0 4px rgba(0,212,255,0.5)); }
+  .mob-tab.active svg { filter:drop-shadow(0 0 5px rgba(0,212,255,0.6)); transform:translateY(-2px); }
+  .mob-tab.active::after {
+    content:''; position:absolute; bottom:0; left:25%; right:25%;
+    height:2px; background:var(--accent); border-radius:2px 2px 0 0;
+    box-shadow:0 0 8px rgba(0,212,255,0.6);
+  }
 
   /* ── MOBILE RESPONSIVE ───────────────────────────────────────── */
   @media (max-width: 768px) {
@@ -390,7 +396,7 @@
     .mob-nav { display:flex; }
 
     /* Main layout: single column, above bottom nav */
-    .main { grid-template-columns:1fr; min-height:unset; padding-bottom:56px; }
+    .main { grid-template-columns:1fr; min-height:unset; padding-bottom:64px; }
 
     /* Sidebar hidden by default, shown via tab */
     .sidebar {
@@ -2354,7 +2360,6 @@ function mobSwitch(tab) {
   } else if (tab === 'chart') {
     chartArea.classList.add('mob-active');
     document.getElementById('mobTabChart').classList.add('active');
-    // Redraw chart if needed
     if (window.lastTicker) setTimeout(() => drawChart(candleData), 100);
   } else if (tab === 'watch') {
     wlPanel.classList.add('open');
@@ -2368,18 +2373,53 @@ function initMobileLayout() {
   if (window.innerWidth <= 768) {
     document.querySelector('.sidebar').classList.add('mob-active');
     document.querySelector('.chart-area').classList.remove('mob-active');
+    document.getElementById('mobTabStats')?.classList.add('active');
+    document.getElementById('mobTabChart')?.classList.remove('active');
   }
 }
 
-window.addEventListener('resize', () => {
-  if (window.innerWidth > 768) {
-    // Restore desktop layout
-    document.querySelector('.sidebar').classList.remove('mob-active');
-    document.querySelector('.chart-area').classList.remove('mob-active');
-  } else {
-    initMobileLayout();
-  }
-});
+// ── PINCH ZOOM DETECTION ─────────────────────────────────────────
+// Track layout width separately from zoom — only react to true window
+// width changes (orientation change / browser resize), NOT pinch zoom.
+let _lastLayoutWidth = window.innerWidth;
+
+// visualViewport fires on pinch zoom but NOT on layout resize
+// window.resize fires on BOTH — so we use visualViewport to distinguish
+if (window.visualViewport) {
+  // Only trigger layout changes when the layout viewport width actually changes
+  // (i.e. orientation flip or browser resize), not when zoom scale changes
+  window.visualViewport.addEventListener('resize', () => {
+    const newWidth = window.visualViewport.width / window.visualViewport.scale;
+    if (Math.abs(newWidth - _lastLayoutWidth) > 50) {
+      _lastLayoutWidth = newWidth;
+      if (newWidth > 768) {
+        document.querySelector('.sidebar').classList.remove('mob-active');
+        document.querySelector('.chart-area').classList.remove('mob-active');
+      } else {
+        initMobileLayout();
+      }
+    }
+    // If only scale changed (pinch zoom) → do nothing, keep current tab
+  });
+} else {
+  // Fallback for browsers without visualViewport
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const newWidth = window.innerWidth;
+      if (Math.abs(newWidth - _lastLayoutWidth) > 50) {
+        _lastLayoutWidth = newWidth;
+        if (newWidth > 768) {
+          document.querySelector('.sidebar').classList.remove('mob-active');
+          document.querySelector('.chart-area').classList.remove('mob-active');
+        } else {
+          initMobileLayout();
+        }
+      }
+    }, 150);
+  });
+}
 
 initMobileLayout();
 
