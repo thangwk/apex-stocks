@@ -407,6 +407,7 @@
 let currentTicker = '';
 let currentTF = 'M';
 let candleData = [];
+let fullCandleData = [];
 let lastFundamentals = {};
 
 const TF_CFG = {
@@ -448,6 +449,16 @@ async function analyzeStock() {
   const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
   if (!ticker) { showToast('Enter a ticker symbol.'); return; }
   currentTicker = ticker;
+
+  // Clear previous chart immediately
+  candleData = [];
+  document.getElementById('chart-wrap').innerHTML = `
+    <div class="chart-empty" id="chartEmpty" style="display:none"></div>
+    <div class="chart-loading on" id="chartLoading">
+      <div class="chart-loading-ring"></div>
+      <div class="chart-loading-txt">LOADING CANDLES...</div>
+    </div>`;
+
   setBusy(true, 'FETCHING QUOTE...');
 
   try {
@@ -498,7 +509,8 @@ async function loadCandles(ticker) {
   }
 
   // Slice to requested number of days
-  const sliced = data.candles.slice(-cfg.days);
+  fullCandleData = data.candles;
+  const sliced = fullCandleData.slice(-cfg.days);
 
   candleData = sliced;
   drawChart(candleData);
@@ -677,13 +689,85 @@ function setSig(id, val, sig, cls) {
   s.textContent = sig; s.className = 'ind-sig ' + cls;
 }
 
+// ── SIGNAL DETECTION ──
+function detectSignals(data) {
+  const closes = data.map(d => d.close);
+  const rsi    = calcRSI(closes, 14);
+  const ema20  = calcEMA(closes, 20);
+  const ema50  = calcEMA(closes, 50);
+  const signals = [];
+
+  for (let i = 2; i < data.length; i++) {
+    const reasons = [];
+    let buyScore = 0, sellScore = 0;
+
+    // 1. EMA 20 crosses above EMA 50 → BUY
+    if (ema20[i] != null && ema50[i] != null && ema20[i-1] != null && ema50[i-1] != null) {
+      if (ema20[i-1] <= ema50[i-1] && ema20[i] > ema50[i]) {
+        buyScore += 2; reasons.push('EMA cross ↑');
+      }
+      if (ema20[i-1] >= ema50[i-1] && ema20[i] < ema50[i]) {
+        sellScore += 2; reasons.push('EMA cross ↓');
+      }
+    }
+
+    // 2. RSI oversold recovery → BUY
+    if (rsi[i-1] != null && rsi[i] != null) {
+      if (rsi[i-1] < 30 && rsi[i] >= 30) {
+        buyScore += 2; reasons.push('RSI oversold bounce');
+      }
+      if (rsi[i-1] > 70 && rsi[i] <= 70) {
+        sellScore += 2; reasons.push('RSI overbought drop');
+      }
+      if (rsi[i] < 25) { buyScore += 1; reasons.push('RSI extreme low'); }
+      if (rsi[i] > 75) { sellScore += 1; reasons.push('RSI extreme high'); }
+    }
+
+    // 3. Price crosses above EMA20 → BUY
+    if (ema20[i] != null && ema20[i-1] != null) {
+      if (closes[i-1] < ema20[i-1] && closes[i] > ema20[i]) {
+        buyScore += 1; reasons.push('Price > EMA20');
+      }
+      if (closes[i-1] > ema20[i-1] && closes[i] < ema20[i]) {
+        sellScore += 1; reasons.push('Price < EMA20');
+      }
+    }
+
+    // 4. Bullish/bearish engulfing candle
+    const prev = data[i-1], curr = data[i];
+    const prevBear = prev.close < prev.open;
+    const currBull = curr.close > curr.open;
+    if (prevBear && currBull && curr.close > prev.open && curr.open < prev.close) {
+      buyScore += 1; reasons.push('Bullish engulf');
+    }
+    const prevBull2 = prev.close > prev.open;
+    const currBear2 = curr.close < curr.open;
+    if (prevBull2 && currBear2 && curr.close < prev.open && curr.open > prev.close) {
+      sellScore += 1; reasons.push('Bearish engulf');
+    }
+
+    // Emit signal if score >= 2
+    if (buyScore >= 2)  signals.push({ i, type: 'buy',  score: buyScore,  reasons });
+    if (sellScore >= 2) signals.push({ i, type: 'sell', score: sellScore, reasons });
+  }
+
+  // Deduplicate: avoid consecutive same-type signals within 3 bars
+  const filtered = [];
+  let lastBuy = -5, lastSell = -5;
+  for (const s of signals) {
+    if (s.type === 'buy'  && s.i - lastBuy  > 3) { filtered.push(s); lastBuy  = s.i; }
+    if (s.type === 'sell' && s.i - lastSell > 3) { filtered.push(s); lastSell = s.i; }
+  }
+  return filtered;
+}
+
 // ── CHART ──
 function drawChart(data) {
   const wrap = document.getElementById('chart-wrap');
   wrap.innerHTML = '';
   const W = wrap.clientWidth  || 900;
-  const H = wrap.clientHeight || 320;
-  const m = { top:16, right:58, bottom:40, left:8 };
+  const H = wrap.clientHeight || 340;
+  const m = { top:20, right:58, bottom:40, left:8 };
   const w = W - m.left - m.right;
   const h = H - m.top  - m.bottom;
 
@@ -693,8 +777,9 @@ function drawChart(data) {
   g.append('rect').attr('width', w).attr('height', h).attr('fill', '#0b0f14').attr('rx', 4);
 
   const xScale = d3.scaleBand().domain(data.map((_, i) => i)).range([0, w]).padding(0.25);
-  const yMin   = d3.min(data, d => d.low)  * 0.998;
-  const yMax   = d3.max(data, d => d.high) * 1.002;
+  // Give extra vertical room for signal arrows
+  const yMin   = d3.min(data, d => d.low)  * 0.993;
+  const yMax   = d3.max(data, d => d.high) * 1.007;
   const yScale = d3.scaleLinear().domain([yMin, yMax]).range([h, 0]);
 
   // Grid
@@ -721,17 +806,17 @@ function drawChart(data) {
       .text(`${dt.getMonth()+1}/${dt.getDate()}`);
   });
 
-  // Volume
+  // Volume bars
   const volMax = d3.max(data, d => d.volume);
   const volH   = d3.scaleLinear().domain([0, volMax]).range([0, h * 0.14]);
   data.forEach((d, i) => {
     g.append('rect')
       .attr('x', xScale(i)).attr('y', h - volH(d.volume))
       .attr('width', xScale.bandwidth()).attr('height', volH(d.volume))
-      .attr('fill', d.close >= d.open ? 'rgba(0,230,118,0.13)' : 'rgba(255,23,68,0.13)');
+      .attr('fill', d.close >= d.open ? 'rgba(0,230,118,0.12)' : 'rgba(255,23,68,0.12)');
   });
 
-  // EMAs
+  // EMA lines
   const closes  = data.map(d => d.close);
   const ema20pt = calcEMA(closes, 20).map((v, i) => ({ v, i })).filter(d => d.v != null);
   const ema50pt = calcEMA(closes, 50).map((v, i) => ({ v, i })).filter(d => d.v != null);
@@ -739,17 +824,25 @@ function drawChart(data) {
   if (ema20pt.length > 1) g.append('path').datum(ema20pt).attr('fill','none').attr('stroke','rgba(0,212,255,0.55)').attr('stroke-width',1.5).attr('d', lineGen);
   if (ema50pt.length > 1) g.append('path').datum(ema50pt).attr('fill','none').attr('stroke','rgba(255,193,7,0.45)').attr('stroke-width',1.5).attr('d', lineGen);
 
+  // EMA legend
+  g.append('circle').attr('cx', 10).attr('cy', 8).attr('r', 4).attr('fill', 'rgba(0,212,255,0.7)');
+  g.append('text').attr('x', 18).attr('y', 12).attr('fill', '#3d5a7a').attr('font-size', '9px').attr('font-family', 'Space Mono, monospace').text('EMA20');
+  g.append('circle').attr('cx', 70).attr('cy', 8).attr('r', 4).attr('fill', 'rgba(255,193,7,0.7)');
+  g.append('text').attr('x', 78).attr('y', 12).attr('fill', '#3d5a7a').attr('font-size', '9px').attr('font-family', 'Space Mono, monospace').text('EMA50');
+  g.append('circle').attr('cx', 130).attr('cy', 8).attr('r', 5).attr('fill', 'rgba(0,230,118,0.8)');
+  g.append('text').attr('x', 139).attr('y', 12).attr('fill', '#3d5a7a').attr('font-size', '9px').attr('font-family', 'Space Mono, monospace').text('BUY');
+  g.append('circle').attr('cx', 175).attr('cy', 8).attr('r', 5).attr('fill', 'rgba(255,23,68,0.8)');
+  g.append('text').attr('x', 184).attr('y', 12).attr('fill', '#3d5a7a').attr('font-size', '9px').attr('font-family', 'Space Mono, monospace').text('SELL');
+
   // Candles
   data.forEach((d, i) => {
     const bull  = d.close >= d.open;
     const color = bull ? '#00e676' : '#ff1744';
     const cx    = xScale(i) + xScale.bandwidth() / 2;
-    // Wick
     g.append('line')
       .attr('x1', cx).attr('x2', cx)
       .attr('y1', yScale(d.high)).attr('y2', yScale(d.low))
       .attr('stroke', color).attr('stroke-width', 1);
-    // Body
     g.append('rect')
       .attr('x', xScale(i))
       .attr('y', yScale(Math.max(d.open, d.close)))
@@ -758,9 +851,90 @@ function drawChart(data) {
       .attr('fill', color).attr('opacity', 0.88);
   });
 
+  // ── BUY / SELL SIGNALS ──
+  const signals = detectSignals(data);
+  const tooltip = d3.select('#chart-wrap').append('div')
+    .style('position', 'absolute')
+    .style('background', 'rgba(11,15,20,0.95)')
+    .style('border', '1px solid #1a2535')
+    .style('border-radius', '6px')
+    .style('padding', '8px 12px')
+    .style('font-family', 'Space Mono, monospace')
+    .style('font-size', '11px')
+    .style('color', '#ddeeff')
+    .style('pointer-events', 'none')
+    .style('display', 'none')
+    .style('z-index', '10')
+    .style('line-height', '1.6')
+    .style('max-width', '180px');
+
+  signals.forEach(sig => {
+    const d   = data[sig.i];
+    const cx  = xScale(sig.i) + xScale.bandwidth() / 2;
+    const isBuy = sig.type === 'buy';
+    const color = isBuy ? '#00e676' : '#ff1744';
+    const arrowY = isBuy
+      ? yScale(d.low)  + 18   // below candle for buy
+      : yScale(d.high) - 18;  // above candle for sell
+
+    // Glow circle
+    g.append('circle')
+      .attr('cx', cx).attr('cy', arrowY)
+      .attr('r', 9)
+      .attr('fill', isBuy ? 'rgba(0,230,118,0.15)' : 'rgba(255,23,68,0.15)')
+      .attr('stroke', color)
+      .attr('stroke-width', 1.5);
+
+    // Arrow triangle
+    const triSize = 5;
+    const triPath = isBuy
+      ? `M${cx},${arrowY - triSize} L${cx + triSize},${arrowY + triSize} L${cx - triSize},${arrowY + triSize} Z`
+      : `M${cx},${arrowY + triSize} L${cx + triSize},${arrowY - triSize} L${cx - triSize},${arrowY - triSize} Z`;
+
+    g.append('path')
+      .attr('d', triPath)
+      .attr('fill', color);
+
+    // Label text
+    g.append('text')
+      .attr('x', cx).attr('y', isBuy ? arrowY + 22 : arrowY - 14)
+      .attr('text-anchor', 'middle')
+      .attr('fill', color)
+      .attr('font-size', '9px')
+      .attr('font-weight', '700')
+      .attr('font-family', 'Space Mono, monospace')
+      .attr('letter-spacing', '1px')
+      .text(isBuy ? 'BUY' : 'SELL');
+
+    // Hover tooltip
+    g.append('rect')
+      .attr('x', cx - 14).attr('y', isBuy ? arrowY - 10 : arrowY - 20)
+      .attr('width', 28).attr('height', 36)
+      .attr('fill', 'transparent')
+      .style('cursor', 'pointer')
+      .on('mouseover', function(event) {
+        tooltip
+          .style('display', 'block')
+          .style('left', (event.offsetX + 12) + 'px')
+          .style('top',  (event.offsetY - 10) + 'px')
+          .html(`
+            <div style="color:${color};font-weight:700;margin-bottom:4px">${isBuy ? '▲ BUY SIGNAL' : '▼ SELL SIGNAL'}</div>
+            <div style="color:#3d5a7a;font-size:10px">${d.date}</div>
+            <div style="margin-top:6px;font-size:10px;color:#7a9ab5">${sig.reasons.join('<br>')}</div>
+            <div style="margin-top:4px;font-size:10px">Score: ${sig.score}/4</div>
+          `);
+      })
+      .on('mousemove', function(event) {
+        tooltip
+          .style('left', (event.offsetX + 12) + 'px')
+          .style('top',  (event.offsetY - 10) + 'px');
+      })
+      .on('mouseout', () => tooltip.style('display', 'none'));
+  });
+
   // Crosshair
-  const crossV = g.append('line').attr('stroke','rgba(0,212,255,0.3)').attr('stroke-width',1).attr('stroke-dasharray','4,3').attr('y1',0).attr('y2',h).style('display','none');
-  const crossH = g.append('line').attr('stroke','rgba(0,212,255,0.3)').attr('stroke-width',1).attr('stroke-dasharray','4,3').attr('x1',0).attr('x2',w).style('display','none');
+  const crossV = g.append('line').attr('stroke','rgba(0,212,255,0.25)').attr('stroke-width',1).attr('stroke-dasharray','4,3').attr('y1',0).attr('y2',h).style('display','none');
+  const crossH = g.append('line').attr('stroke','rgba(0,212,255,0.25)').attr('stroke-width',1).attr('stroke-dasharray','4,3').attr('x1',0).attr('x2',w).style('display','none');
 
   svg.on('mousemove', function(event) {
     const [mx, my] = d3.pointer(event, g.node());
@@ -780,8 +954,8 @@ function drawChart(data) {
 
 // ── AI ANALYSIS ──
 async function runAI(ticker, quote, profile, metrics) {
-  const el    = document.getElementById('aiBody');
-  el.textContent = '';
+  const el = document.getElementById('aiBody');
+  el.textContent = 'Analysing...';
   const m     = metrics;
   const price = quote.c;
   const eps   = m['epsBasicExclExtraAnnual'] || '—';
@@ -789,7 +963,6 @@ async function runAI(ticker, quote, profile, metrics) {
   const beta  = m['beta'] || '—';
   const h52   = m['52WeekHigh'] || '—';
   const l52   = m['52WeekLow']  || '—';
-  const rev3  = m['revenueGrowth3Y'] || '—';
   const trend = quote.c > quote.pc ? 'UPTREND' : 'DOWNTREND';
 
   const prompt = `You are a professional stock and options analyst. Analyze ${ticker} (${profile.name || ticker}, ${profile.finnhubIndustry || 'equity'}) and write a sharp trading brief.
@@ -797,7 +970,7 @@ async function runAI(ticker, quote, profile, metrics) {
 Live Data:
 - Current price: $${price.toFixed(2)} | Prev close: $${quote.pc.toFixed(2)}
 - P/E: ${pe} | EPS TTM: ${eps} | Beta: ${beta}
-- 52W range: $${l52}–$${h52} | 3Y revenue growth: ${rev3}%
+- 52W range: $${l52}–$${h52}
 - Intraday: Open $${quote.o} · High $${quote.h} · Low $${quote.l}
 - Trend: ${trend}
 
@@ -814,19 +987,19 @@ Be direct, use numbers, no fluff. Professional tone.`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
     const data = await resp.json();
-    const text = data.content?.[0]?.text || 'Analysis unavailable.';
+    if (!resp.ok) throw new Error(data.error || 'AI analysis failed');
+    const text = data.text || 'Analysis unavailable.';
+    el.textContent = '';
     for (let i = 0; i < text.length; i++) {
       el.textContent += text[i];
-      if (i % 4 === 0) await delay(7);
+      if (i % 5 === 0) await delay(6);
     }
   } catch (e) {
-    el.textContent = `Unable to run AI analysis: ${e.message}`;
+    el.textContent = `AI analysis unavailable: ${e.message}`;
   }
 }
 
@@ -877,9 +1050,16 @@ function setTF(el) {
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
   currentTF = el.dataset.tf;
-  if (currentTicker) {
-    setBusy(true, 'LOADING CHART...');
-    loadCandles(currentTicker).catch(e => showToast(e.message)).finally(() => setBusy(false));
+  if (currentTicker && fullCandleData.length) {
+    const cfg = TF_CFG[currentTF];
+    document.getElementById('tfLabel').textContent = cfg.label;
+    const sliced = fullCandleData.slice(-cfg.days);
+    if (sliced.length > 0) {
+      candleData = sliced;
+      drawChart(candleData);
+      updateIndicators(candleData, lastFundamentals.quote);
+      updateLevels(candleData, lastFundamentals.quote);
+    }
   }
 }
 

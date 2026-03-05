@@ -7,17 +7,22 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
       },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 1024,
+        messages: req.body.messages,
+      }),
     });
     const data = await r.json();
-    res.status(r.status).json(data);
+    if (!r.ok) return res.status(r.status).json({ error: data.error?.message || 'Groq API error' });
+    // Return in a format the frontend can use
+    res.status(200).json({ text: data.choices?.[0]?.message?.content || 'No response.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
