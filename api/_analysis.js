@@ -187,15 +187,24 @@ export function analyzeCandles(candles, currentPrice) {
 }
 
 export async function fetchCandles(symbol) {
-  const r = await fetch(
-    `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=60&apikey=${process.env.TWELVE_DATA_API_KEY}`
-  );
-  const data = await r.json();
-  if (!data.values) return null;
-  return data.values.reverse().map(v => ({
-    date:v.datetime, open:parseFloat(v.open), high:parseFloat(v.high),
-    low:parseFloat(v.low), close:parseFloat(v.close), volume:parseInt(v.volume)||0,
-  }));
+  try {
+    const { getCache, setCache } = await import('./_redis.js');
+    const TTL_CANDLES = 6 * 60 * 60 * 1000; // 6 hours
+    const cached = await getCache('candles', symbol);
+    if (cached) return cached;
+
+    const r = await fetch(
+      `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=60&apikey=${process.env.TWELVE_DATA_API_KEY}`
+    );
+    const data = await r.json();
+    if (!data.values) return null;
+    const candles = data.values.reverse().map(v => ({
+      date:v.datetime, open:parseFloat(v.open), high:parseFloat(v.high),
+      low:parseFloat(v.low), close:parseFloat(v.close), volume:parseInt(v.volume)||0,
+    }));
+    await setCache('candles', symbol, candles, TTL_CANDLES);
+    return candles;
+  } catch(e) { return null; }
 }
 
 export async function fetchQuote(symbol) {
@@ -266,7 +275,7 @@ export async function sendTelegram(chatId, message) {
 }
 
 // ── Format a single stock result into a Telegram message block ──
-function formatStockBlock(r) {
+export function formatStockBlock(r) {
   if (r.signal === 'ERROR') return `⛔ <b>${r.ticker}</b> — ${r.error}`;
 
   const emoji  = { BUY:'🟢', SELL:'🔴', HOLD:'⚪', WATCH:'🟡' };
@@ -373,7 +382,7 @@ export async function fetchFMP(symbol) {
   try {
     const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('fmp', symbol);
-    if (cached) return cached;
+    if (cached && cached.rating) return cached;
 
     const apiKey = process.env.FMP_API_KEY;
     const r = await fetch(
@@ -397,20 +406,44 @@ export async function fetchFMP(symbol) {
   } catch(e) { return null; }
 }
 
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
 export async function runAnalysis(tickers) {
   const results = [];
 
+  // Twelve Data free tier = 8 calls/min
+  // We fetch candles serially with a delay when cache misses occur
+  // Other APIs (Finnhub, FMP) are not rate-limited here
+
+  // Step 1: fetch candles serially with rate limit protection
+  const candleMap = {};
   for (const ticker of tickers) {
     try {
-      const [quote, candles, metrics, profile, fmp, targets] = await Promise.all([
+      const { getCache } = await import('./_redis.js');
+      const cached = await getCache('candles', ticker);
+      if (cached) {
+        candleMap[ticker] = cached; // cache hit — no API call, no delay needed
+      } else {
+        candleMap[ticker] = await fetchCandles(ticker); // API call
+        await delay(8000); // wait 8s before next Twelve Data call (max ~7/min, safely under 8)
+      }
+    } catch(e) {
+      candleMap[ticker] = null;
+    }
+  }
+
+  // Step 2: fetch all other data in parallel per ticker (Finnhub/FMP — no rate issue)
+  for (const ticker of tickers) {
+    try {
+      const [quote, metrics, profile, fmp, targets] = await Promise.all([
         fetchQuote(ticker),
-        fetchCandles(ticker),
         fetchFundamentals(ticker),
         fetchProfile(ticker),
         fetchFMP(ticker),
         fetchTargets(ticker),
       ]);
 
+      const candles = candleMap[ticker];
       if (!quote.c || !candles) { results.push({ ticker, signal:'ERROR', error:'No data' }); continue; }
 
       const analysis = analyzeCandles(candles, quote.c);

@@ -95,7 +95,9 @@ export default async function handler(req, res) {
       if (list.length === 0) {
         await sendTelegram(chatId, `⚠️ Your watchlist is empty.\n\nAdd stocks with /add AAPL`);
       } else {
-        await sendTelegram(chatId, `⏳ Analysing ${list.length} stock(s)...\nThis may take up to 30 seconds.`);
+        const estSecs = list.length * 8;
+        const estMsg  = estSecs > 15 ? ` (~${Math.ceil(estSecs/60)} min)` : ' (~15 sec)';
+        await sendTelegram(chatId, `⏳ Analysing ${list.length} stock(s)${estMsg}...\n\nFetching data with rate limiting to avoid API errors. Please wait.`);
         const { message } = await runAnalysis(list);
         await sendTelegram(chatId, message);
       }
