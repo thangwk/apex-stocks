@@ -410,11 +410,11 @@ let candleData = [];
 let lastFundamentals = {};
 
 const TF_CFG = {
-  'D':  { res:'D', seconds: 7*86400,     label:'1 WEEK' },
-  'W':  { res:'D', seconds: 14*86400,    label:'2 WEEKS' },
-  'M':  { res:'D', seconds: 30*86400,    label:'1 MONTH' },
-  '3M': { res:'D', seconds: 90*86400,    label:'3 MONTHS' },
-  'Y':  { res:'W', seconds: 365*86400,   label:'1 YEAR' },
+  'D':  { days: 7,   label:'1 WEEK' },
+  'W':  { days: 14,  label:'2 WEEKS' },
+  'M':  { days: 30,  label:'1 MONTH' },
+  '3M': { days: 90,  label:'3 MONTHS' },
+  'Y':  { days: 365, label:'1 YEAR' },
 };
 
 // ── API helpers — all calls go through /api/* proxy ──
@@ -423,9 +423,13 @@ async function apiQuote(symbol) {
   if (!r.ok) throw new Error(`Quote fetch failed (${r.status})`);
   return r.json();
 }
-async function apiCandles(symbol, resolution, from, to) {
-  const r = await fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${to}`);
-  if (!r.ok) throw new Error(`Candles fetch failed (${r.status})`);
+async function apiCandles(symbol, tf) {
+  const outputsize = tf === 'Y' ? 'full' : 'compact';
+  const r = await fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&tf=${outputsize}`);
+  if (!r.ok) {
+    const e = await r.json();
+    throw new Error(e.error || `Candles fetch failed (${r.status})`);
+  }
   return r.json();
 }
 async function apiProfile(symbol) {
@@ -479,33 +483,24 @@ async function analyzeStock() {
 
 async function loadCandles(ticker) {
   const cfg = TF_CFG[currentTF];
-  const to   = Math.floor(Date.now() / 1000);
-  const from = to - cfg.seconds;
   document.getElementById('tfLabel').textContent = cfg.label;
 
-  // Show chart loading overlay
   document.getElementById('chartLoading').classList.add('on');
   document.getElementById('chartEmpty').style.display = 'none';
 
-  const data = await apiCandles(ticker, cfg.res, from, to);
+  const data = await apiCandles(ticker, currentTF);
 
-  // Hide chart loading overlay
   document.getElementById('chartLoading').classList.remove('on');
 
-  if (data.s !== 'ok' || !data.t || data.t.length === 0) {
-    document.getElementById('chart-wrap').innerHTML = '<div class="chart-empty" id="chartEmpty">NO CANDLE DATA FOR THIS PERIOD</div><div class="chart-loading" id="chartLoading"><div class="chart-loading-ring"></div><div class="chart-loading-txt">LOADING CANDLES...</div></div>';
+  if (!data.candles || data.candles.length === 0) {
+    document.getElementById('chart-wrap').innerHTML = '<div class="chart-empty" id="chartEmpty">NO CANDLE DATA FOR THIS SYMBOL</div><div class="chart-loading" id="chartLoading"><div class="chart-loading-ring"></div><div class="chart-loading-txt">LOADING CANDLES...</div></div>';
     return;
   }
 
-  candleData = data.t.map((t, i) => ({
-    date: new Date(t * 1000),
-    open:  data.o[i],
-    high:  data.h[i],
-    low:   data.l[i],
-    close: data.c[i],
-    volume: data.v[i],
-  }));
+  // Slice to requested number of days
+  const sliced = data.candles.slice(-cfg.days);
 
+  candleData = sliced;
   drawChart(candleData);
   updateIndicators(candleData, lastFundamentals.quote);
   updateLevels(candleData, lastFundamentals.quote);
@@ -718,11 +713,12 @@ function drawChart(data) {
   const step = Math.max(1, Math.floor(data.length / 7));
   data.filter((_, i) => i % step === 0).forEach(d => {
     const i = data.indexOf(d);
+    const dt = new Date(d.date);
     g.append('text')
       .attr('x', xScale(i) + xScale.bandwidth() / 2).attr('y', h + 18)
       .attr('fill', '#3d5a7a').attr('font-size', '9px').attr('font-family', 'Space Mono, monospace')
       .attr('text-anchor', 'middle')
-      .text(`${d.date.getMonth()+1}/${d.date.getDate()}`);
+      .text(`${dt.getMonth()+1}/${dt.getDate()}`);
   });
 
   // Volume
