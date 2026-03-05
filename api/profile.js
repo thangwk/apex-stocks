@@ -5,32 +5,35 @@ export default async function handler(req, res) {
   const { symbol } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
-  // Check cache first
+  // Check cache — but skip if cached result has empty finnhubIndustry
   const cached = await getCache('profile', symbol);
-  if (cached) {
+  if (cached && cached.finnhubIndustry) {
     return res.status(200).json({ ...cached, _cached: true });
   }
 
   try {
     const r = await fetch(
-      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=assetProfile,price`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } }
+      `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${process.env.FINNHUB_API_KEY}`
     );
     const d = await r.json();
-    const profile = d?.quoteSummary?.result?.[0];
-    const asset   = profile?.assetProfile || {};
-    const price   = profile?.price || {};
+
+    if (!d || !d.name) return res.status(404).json({ error: 'Profile not found' });
 
     const result = {
-      name:            price.longName || price.shortName || symbol,
+      name:            d.name || symbol,
       ticker:          symbol,
-      exchange:        price.exchangeName || '',
-      finnhubIndustry: asset.industry || asset.sector || '',
-      weburl:          asset.website || '',
-      country:         asset.country || '',
+      exchange:        d.exchange || '',
+      finnhubIndustry: d.finnhubIndustry || '',
+      weburl:          d.weburl || '',
+      country:         d.country || '',
+      logo:            d.logo || '',
     };
 
-    await setCache('profile', symbol, result, TTL.PROFILE);
+    // Only cache if we got valid industry data
+    if (result.finnhubIndustry) {
+      await setCache('profile', symbol, result, TTL.PROFILE);
+    }
+
     res.status(200).json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });

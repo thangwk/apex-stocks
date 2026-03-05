@@ -2064,10 +2064,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   // Then pull Redis (picks up any Telegram additions/removals)
   syncWatchlistFromRedis();
-});
 
-document.getElementById('wlInputEl').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addToWatchlist();
+  // Safe to attach listener now that DOM is ready
+  const wlInput = document.getElementById('wlInputEl');
+  if (wlInput) wlInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') addToWatchlist();
+  });
 });
 </script>
 

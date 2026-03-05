@@ -2,7 +2,7 @@ import { createClient } from 'redis';
 
 let client = null;
 
-async function getClient() {
+export async function getClient() {
   if (client) return client;
   client = createClient({ url: process.env.REDIS_URL });
   client.on('error', (e) => console.error('Redis error:', e));
