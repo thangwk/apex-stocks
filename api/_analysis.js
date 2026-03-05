@@ -186,30 +186,64 @@ export async function fetchCandles(symbol) {
 }
 
 export async function fetchQuote(symbol) {
-  const r = await fetch(
-    `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
-  );
-  const d = await r.json();
-  if (d.status === 'error') throw new Error(d.message);
-  return { c:parseFloat(d.close), pc:parseFloat(d.previous_close), o:parseFloat(d.open), h:parseFloat(d.high), l:parseFloat(d.low) };
+  try {
+    const { getCache, setCache, TTL } = await import('./_redis.js');
+    const cached = await getCache('quote', symbol);
+    if (cached) return cached;
+
+    const r = await fetch(
+      `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
+    );
+    const d = await r.json();
+    if (d.status === 'error') throw new Error(d.message);
+    const result = { c:parseFloat(d.close), pc:parseFloat(d.previous_close), o:parseFloat(d.open), h:parseFloat(d.high), l:parseFloat(d.low) };
+    await setCache('quote', symbol, result, TTL.QUOTE);
+    return result;
+  } catch(e) { throw e; }
 }
 
 export async function fetchFundamentals(symbol) {
   try {
+    // Check cache first
+    const { getCache, setCache, TTL } = await import('./_redis.js');
+    const cached = await getCache('metrics', symbol);
+    if (cached) return cached;
+
     const r = await fetch(
       `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${process.env.FINNHUB_API_KEY}`,
     );
     const d = await r.json();
-    return d.metric || {};
+    const metric = d.metric || {};
+    if (Object.keys(metric).length > 0) await setCache('metrics', symbol, metric, TTL.METRICS);
+    return metric;
   } catch(e) { return {}; }
 }
 
 export async function fetchProfile(symbol) {
   try {
+    // Check cache first
+    const { getCache, setCache, TTL } = await import('./_redis.js');
+    const cached = await getCache('profile', symbol);
+    if (cached) return cached;
+
     const r = await fetch(
-      `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${process.env.FINNHUB_API_KEY}`
+      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=assetProfile,price`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } }
     );
-    return r.json();
+    const d = await r.json();
+    const profile = d?.quoteSummary?.result?.[0];
+    const asset   = profile?.assetProfile || {};
+    const price   = profile?.price || {};
+    const result  = {
+      name:            price.longName || price.shortName || symbol,
+      ticker:          symbol,
+      exchange:        price.exchangeName || '',
+      finnhubIndustry: asset.industry || asset.sector || '',
+      weburl:          asset.website || '',
+      country:         asset.country || '',
+    };
+    await setCache('profile', symbol, result, TTL.PROFILE);
+    return result;
   } catch(e) { return {}; }
 }
 

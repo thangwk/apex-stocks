@@ -82,3 +82,43 @@ export async function removeTicker(chatId, ticker) {
 export async function clearWatchlist(chatId) {
   await saveWatchlist(chatId, []);
 }
+
+// ── Cache helpers ────────────────────────────────────────────────
+// apex:cache:<type>:<SYMBOL>  →  { data, cachedAt }
+
+function cacheKey(type, symbol) {
+  return `apex:cache:${type}:${symbol.toUpperCase()}`;
+}
+
+export async function getCache(type, symbol) {
+  try {
+    const redis = await getClient();
+    const raw   = await redis.get(cacheKey(type, symbol));
+    if (!raw) return null;
+    const { data, cachedAt, ttl } = JSON.parse(raw);
+    // Check if expired
+    if (Date.now() - cachedAt > ttl) {
+      await redis.del(cacheKey(type, symbol));
+      return null;
+    }
+    return data;
+  } catch(e) { return null; }
+}
+
+export async function setCache(type, symbol, data, ttlMs) {
+  try {
+    const redis = await getClient();
+    await redis.set(
+      cacheKey(type, symbol),
+      JSON.stringify({ data, cachedAt: Date.now(), ttl: ttlMs }),
+      { EX: Math.ceil(ttlMs / 1000) } // Redis native TTL as backup
+    );
+  } catch(e) { /* cache write failure is non-fatal */ }
+}
+
+// TTL constants
+export const TTL = {
+  QUOTE:   15  * 60 * 1000,  // 15 minutes
+  METRICS: 24  * 60 * 60 * 1000,  // 24 hours
+  PROFILE: 7   * 24 * 60 * 60 * 1000,  // 7 days
+};
