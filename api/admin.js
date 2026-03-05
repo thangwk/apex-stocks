@@ -44,18 +44,35 @@ export default async function handler(req, res) {
   // ── Cache clear ──────────────────────────────────────────────────
   if (action === 'cache-clear') {
     const { symbol, type = 'all' } = req.query;
-    if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
     try {
-      const redis  = await getClient();
-      const types  = type === 'all' ? ['profile', 'metrics', 'quote', 'fmp'] : [type];
+      const redis = await getClient();
+
+      // Wildcard clear — no symbol, clear ALL cached data of a type
+      if (!symbol || symbol === '*') {
+        const pattern = type === 'all' ? 'apex:cache:*' : `apex:cache:${type}:*`;
+        const keys = [];
+        let cursor = 0;
+        do {
+          const res2 = await redis.scan(cursor, { MATCH: pattern, COUNT: 100 });
+          cursor = res2.cursor;
+          keys.push(...res2.keys);
+        } while (cursor !== 0);
+        if (keys.length > 0) await redis.del(keys);
+        return res.status(200).json({ ok: true, cleared: keys.length + ' keys', pattern });
+      }
+
+      const sym    = symbol.toUpperCase();
+      const types  = type === 'all'
+        ? ['profile', 'metrics', 'quote', 'fmp', 'targets']
+        : [type];
       const deleted = [];
       for (const t of types) {
-        const key = `apex:cache:${t}:${symbol.toUpperCase()}`;
+        const key = `apex:cache:${t}:${sym}`;
         const result = await redis.del(key);
-        if (result > 0) deleted.push(t);
+        deleted.push(`${t}:${result > 0 ? 'deleted' : 'not found'}`);
       }
-      return res.status(200).json({ ok: true, symbol, cleared: deleted });
+      return res.status(200).json({ ok: true, symbol: sym, cleared: deleted });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }

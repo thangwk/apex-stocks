@@ -1,8 +1,17 @@
 import { getCache, setCache, TTL } from './_redis.js';
 
-// FMP endpoints we use:
-// 1. DCF value:     /api/v3/discounted-cash-flow/AAPL
-// 2. Company rating: /api/v3/rating/AAPL
+// FMP stable endpoint: ratings-snapshot
+// Returns: symbol, rating, overallScore, discountedCashFlowScore,
+//          returnOnEquityScore, returnOnAssetsScore, debtToEquityScore,
+//          priceToEarningsScore, priceToBookScore
+
+function scoreToRecommendation(score) {
+  if (score >= 5) return 'Strong Buy';
+  if (score >= 4) return 'Buy';
+  if (score >= 3) return 'Neutral';
+  if (score >= 2) return 'Underperform';
+  return 'Sell';
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,38 +20,38 @@ export default async function handler(req, res) {
 
   const sym = symbol.toUpperCase();
 
-  // Check cache first (24 hours)
+  // Check cache first (24 hours) — skip if cached result is empty
   const cached = await getCache('fmp', sym);
-  if (cached) return res.status(200).json({ ...cached, _cached: true });
+  if (cached && cached.rating) return res.status(200).json({ ...cached, _cached: true });
 
   try {
     const apiKey = process.env.FMP_API_KEY;
-    const base   = 'https://financialmodelingprep.com/api/v3';
+    const url = `https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${sym}&apikey=${apiKey}`;
+    const r = await fetch(url);
+    const raw = await r.text();
 
-    const [dcfRes, ratingRes] = await Promise.all([
-      fetch(`${base}/discounted-cash-flow/${sym}?apikey=${apiKey}`),
-      fetch(`${base}/rating/${sym}?apikey=${apiKey}`),
-    ]);
+    // Return raw for debugging
+    if (req.query.debug) return res.status(200).json({ status: r.status, raw });
 
-    const dcfData    = await dcfRes.json();
-    const ratingData = await ratingRes.json();
+    let data;
+    try { data = JSON.parse(raw); } catch(e) { return res.status(200).json({ rating: null, raw, parseError: e.message }); }
+    const d = Array.isArray(data) ? data[0] : (data?.data?.[0] || null);
 
-    const dcf    = Array.isArray(dcfData)    ? dcfData[0]    : dcfData;
-    const rating = Array.isArray(ratingData) ? ratingData[0] : ratingData;
+    if (!d) return res.status(200).json({ rating: null, recommendation: null });
 
     const result = {
-      dcf:              dcf?.dcf          || null,   // FMP DCF intrinsic value
-      stockPrice:       dcf?.['Stock Price'] || null,
-      ratingScore:      rating?.ratingScore || null, // 1-5
-      rating:           rating?.rating      || null, // S, A, B, C, D
-      recommendation:   rating?.ratingRecommendation || null, // Strong Buy, Buy, etc.
-      dcfScore:         rating?.ratingDetailsDCFScore || null,
-      dcfRecommendation:rating?.ratingDetailsDCFRecommendation || null,
+      rating:           d.rating         || null,  // A, B, C, D, S
+      overallScore:     d.overallScore    || null,  // 1-5
+      dcfScore:         d.discountedCashFlowScore || null,
+      roeScore:         d.returnOnEquityScore     || null,
+      roaScore:         d.returnOnAssetsScore     || null,
+      debtScore:        d.debtToEquityScore       || null,
+      peScore:          d.priceToEarningsScore    || null,
+      pbScore:          d.priceToBookScore        || null,
+      recommendation:   scoreToRecommendation(d.overallScore || 0),
     };
 
-    // Only cache if we got valid DCF data
-    if (result.dcf) await setCache('fmp', sym, result, TTL.METRICS); // 24h
-
+    await setCache('fmp', sym, result, TTL.METRICS); // 24h
     res.status(200).json(result);
   } catch(e) {
     res.status(500).json({ error: e.message });
