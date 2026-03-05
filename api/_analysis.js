@@ -37,7 +37,7 @@ function getSectorMultiple(industry, table, def) {
 }
 
 // ── Intrinsic Value ──────────────────────────────────────────────
-export function calcIV(m, industry, fmp) {
+export function calcIV(m, industry, fmp, targets) {
   const sectorPE   = getSectorMultiple(industry, SECTOR_PE, 18);
   const sectorPFCF = getSectorMultiple(industry, SECTOR_PFCF, 18);
   const sectorEV   = getSectorMultiple(industry, SECTOR_EV, 14);
@@ -62,10 +62,6 @@ export function calcIV(m, industry, fmp) {
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
   const methods = [];
-
-  // FMP DCF — professionally computed from SEC filings, highest weight
-  if (fmp?.dcf && fmp.dcf > 0)
-    methods.push({ name:'FMP DCF', value:fmp.dcf, weight:3 });
 
   // DCF on FCF
   if (fcfPS > 0) {
@@ -116,6 +112,19 @@ export function calcIV(m, industry, fmp) {
     const fairPB = Math.min((cappedROE/100)/0.09, 8);
     methods.push({ name:'P/B', value:bvps * fairPB, weight:0.5 });
   }
+
+  // DDM — dividend-paying stocks only
+  const divTTM  = m['dividendPerShareTTM'] || 0;
+  const divGrow = (m['dividendGrowthRate5Y'] || 0) / 100;
+  const wacc    = 0.09;
+  if (divTTM > 0 && divGrow > 0 && divGrow < wacc) {
+    const v = (divTTM * (1 + divGrow)) / (wacc - divGrow);
+    if (v > 0) methods.push({ name:'DDM', value:v, weight:1.5 });
+  }
+
+  // Analyst consensus price target — highest weight, real-world signal
+  if (targets?.targetMean && targets.targetMean > 0)
+    methods.push({ name:'Analyst Target', value:targets.targetMean, weight:3 });
 
   if (methods.length === 0) return null;
 
@@ -290,10 +299,50 @@ function formatStockBlock(r) {
     lines.push(`\n🏦 <b>FMP Rating</b>: ${r.fmp.rating} — ${r.fmp.recommendation || '—'}`);
   }
 
+  // Analyst target
+  if (r.targets?.targetMean) {
+    const total    = (r.targets.strongBuy||0)+(r.targets.buy||0)+(r.targets.hold||0)+(r.targets.sell||0)+(r.targets.strongSell||0);
+    const bullish  = (r.targets.strongBuy||0)+(r.targets.buy||0);
+    const sentiment = total > 0 ? (bullish/total >= 0.6 ? '▲ Bullish' : bullish/total <= 0.35 ? '▼ Bearish' : '◆ Mixed') : '';
+    lines.push(`\n🎯 <b>Analyst Target</b>: $${r.targets.targetMean.toFixed(2)} ${sentiment}`);
+    lines.push(`Range: $${(r.targets.targetLow||0).toFixed(0)} – $${(r.targets.targetHigh||0).toFixed(0)} · ${r.targets.analysts||'?'} analysts`);
+  }
+
   return lines.join('\n');
 }
 
 // ── Run full analysis for a list of tickers ──
+export async function fetchTargets(symbol) {
+  try {
+    const { getCache, setCache, TTL } = await import('./_redis.js');
+    const cached = await getCache('targets', symbol);
+    if (cached) return cached;
+
+    const token = process.env.FINNHUB_API_KEY;
+    const [targetRes, recRes] = await Promise.all([
+      fetch(`https://finnhub.io/api/v1/stock/price-target?symbol=${symbol}&token=${token}`),
+      fetch(`https://finnhub.io/api/v1/stock/recommendation?symbol=${symbol}&token=${token}`),
+    ]);
+    const targetData = await targetRes.json();
+    const recData    = await recRes.json();
+    const rec = Array.isArray(recData) ? recData[0] : null;
+
+    const result = {
+      targetMean:   targetData.targetMean   || null,
+      targetHigh:   targetData.targetHigh   || null,
+      targetLow:    targetData.targetLow    || null,
+      analysts:     targetData.numberOfAnalysts || null,
+      strongBuy:    rec?.strongBuy  || 0,
+      buy:          rec?.buy        || 0,
+      hold:         rec?.hold       || 0,
+      sell:         rec?.sell       || 0,
+      strongSell:   rec?.strongSell || 0,
+    };
+    if (result.targetMean) await setCache('targets', symbol, result, TTL.METRICS);
+    return result;
+  } catch(e) { return null; }
+}
+
 export async function fetchFMP(symbol) {
   try {
     const { getCache, setCache, TTL } = await import('./_redis.js');
@@ -301,22 +350,23 @@ export async function fetchFMP(symbol) {
     if (cached) return cached;
 
     const apiKey = process.env.FMP_API_KEY;
-    const base   = 'https://financialmodelingprep.com/api/v3';
-    const [dcfRes, ratingRes] = await Promise.all([
-      fetch(`${base}/discounted-cash-flow/${symbol}?apikey=${apiKey}`),
-      fetch(`${base}/rating/${symbol}?apikey=${apiKey}`),
-    ]);
-    const dcfData    = await dcfRes.json();
-    const ratingData = await ratingRes.json();
-    const dcf        = Array.isArray(dcfData)    ? dcfData[0]    : dcfData;
-    const rating     = Array.isArray(ratingData) ? ratingData[0] : ratingData;
+    const r = await fetch(
+      `https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${symbol}&apikey=${apiKey}`
+    );
+    const data = await r.json();
+    const d = Array.isArray(data) ? data[0] : null;
+    if (!d) return null;
 
     const result = {
-      dcf:            dcf?.dcf || null,
-      recommendation: rating?.ratingRecommendation || null,
-      rating:         rating?.rating || null,
+      rating:         d.rating || null,
+      overallScore:   d.overallScore || null,
+      dcfScore:       d.discountedCashFlowScore || null,
+      recommendation: d.overallScore >= 5 ? 'Strong Buy'
+                    : d.overallScore >= 4 ? 'Buy'
+                    : d.overallScore >= 3 ? 'Neutral'
+                    : d.overallScore >= 2 ? 'Underperform' : 'Sell',
     };
-    if (result.dcf) await setCache('fmp', symbol, result, TTL.METRICS);
+    await setCache('fmp', symbol, result, TTL.METRICS);
     return result;
   } catch(e) { return null; }
 }
@@ -326,21 +376,22 @@ export async function runAnalysis(tickers) {
 
   for (const ticker of tickers) {
     try {
-      const [quote, candles, metrics, profile, fmp] = await Promise.all([
+      const [quote, candles, metrics, profile, fmp, targets] = await Promise.all([
         fetchQuote(ticker),
         fetchCandles(ticker),
         fetchFundamentals(ticker),
         fetchProfile(ticker),
         fetchFMP(ticker),
+        fetchTargets(ticker),
       ]);
 
       if (!quote.c || !candles) { results.push({ ticker, signal:'ERROR', error:'No data' }); continue; }
 
       const analysis = analyzeCandles(candles, quote.c);
       const chg      = ((quote.c - quote.pc) / quote.pc * 100);
-      const iv       = calcIV(metrics, profile?.finnhubIndustry || '', fmp);
+      const iv       = calcIV(metrics, profile?.finnhubIndustry || '', fmp, targets);
 
-      results.push({ ticker, price:quote.c, change:chg, iv, fmp, ...analysis });
+      results.push({ ticker, price:quote.c, change:chg, iv, fmp, targets, ...analysis });
     } catch(e) {
       results.push({ ticker, signal:'ERROR', error:e.message });
     }

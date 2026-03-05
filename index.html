@@ -539,6 +539,7 @@
         <div class="mc"><div class="mc-lbl">Mkt Cap</div><div class="mc-val" id="mCap">—</div></div>
         <div class="mc"><div class="mc-lbl">Beta</div><div class="mc-val" id="mBeta">—</div></div>
         <div class="mc" style="grid-column:1/-1"><div class="mc-lbl">FMP Rating</div><div class="mc-val" id="mFMPRating">—</div></div>
+        <div class="mc" style="grid-column:1/-1"><div class="mc-lbl">Analyst Target</div><div class="mc-val" id="mAnalystTarget" style="font-size:13px;line-height:1.4">—</div></div>
       </div>
     </div>
 
@@ -721,6 +722,13 @@ async function apiFMP(symbol) {
     return r.json();
   } catch(e) { return null; } // FMP failure is non-fatal
 }
+async function apiTargets(symbol) {
+  try {
+    const r = await fetch(`/api/metrics?symbol=${encodeURIComponent(symbol)}&type=targets`);
+    if (!r.ok) return null;
+    return r.json();
+  } catch(e) { return null; }
+}
 
 function updateLiveBadge(q, p, m) {
   const badge = document.getElementById('liveBadge');
@@ -758,26 +766,28 @@ async function analyzeStock() {
 
   setBusy(true, 'FETCHING QUOTE...');
 
-  // Step 1 — fetch quote + profile + metrics + FMP together
-  let quote, profile, metrics, fmp;
+  // Step 1 — fetch quote + profile + metrics + FMP + analyst targets together
+  let quote, profile, metrics, fmp, targets;
   try {
-    const [q, p, m, f] = await Promise.all([
+    const [q, p, m, f, t] = await Promise.all([
       apiQuote(ticker),
       apiProfile(ticker),
       apiMetrics(ticker),
       apiFMP(ticker),
+      apiTargets(ticker),
     ]);
     if (!q.c || q.c === 0) throw new Error(`No data found for "${ticker}". Check the ticker symbol.`);
     quote   = q;
     profile = p;
     metrics = m.metric || {};
     fmp     = f;
-    lastFundamentals = { quote, profile, metrics, fmp };
+    targets = t;
+    lastFundamentals = { quote, profile, metrics, fmp, targets };
 
     updateLiveBadge(q, p, m);
     updateHero(ticker, quote, profile);
-    updateMetrics(quote, metrics, fmp);
-    updateIV(quote, metrics, profile, fmp);
+    updateMetrics(quote, metrics, fmp, targets);
+    updateIV(quote, metrics, profile, fmp, targets);
   } catch (e) {
     showToast(e.message);
     setBusy(false);
@@ -858,7 +868,7 @@ function updateHero(ticker, quote, profile) {
     'Open $' + quote.o.toFixed(2) + '  ·  High $' + quote.h.toFixed(2) + '  ·  Low $' + quote.l.toFixed(2);
 }
 
-function updateMetrics(quote, m, fmp) {
+function updateMetrics(quote, m, fmp, targets) {
   const fmt = (v, prefix='', suffix='') => (v != null && v !== 0) ? prefix + Number(v).toFixed(2) + suffix : '—';
   const fmtB = (v) => {
     if (v == null || v === 0) return '—';
@@ -886,6 +896,21 @@ function updateMetrics(quote, m, fmp) {
     fmpEl.innerHTML = `<span style="color:${col};font-weight:700">${fmp.rating}</span> <span style="color:var(--muted);font-size:9px">${rec}</span>`;
   } else if (fmpEl) {
     fmpEl.textContent = '—';
+  }
+
+  // Analyst price target
+  const tgtEl = document.getElementById('mAnalystTarget');
+  if (tgtEl && targets?.targetMean) {
+    const total = (targets.strongBuy||0)+(targets.buy||0)+(targets.hold||0)+(targets.sell||0)+(targets.strongSell||0);
+    const bullish = (targets.strongBuy||0)+(targets.buy||0);
+    const sentiment = total > 0
+      ? (bullish/total >= 0.6 ? '<span style="color:var(--bull)">▲ BULLISH</span>'
+       : bullish/total <= 0.35 ? '<span style="color:var(--bear)">▼ BEARISH</span>'
+       : '<span style="color:var(--gold)">◆ MIXED</span>')
+      : '';
+    tgtEl.innerHTML = `$${targets.targetMean.toFixed(2)} ${sentiment}<br><span style="color:var(--muted);font-size:9px">Lo $${(targets.targetLow||0).toFixed(0)} · Hi $${(targets.targetHigh||0).toFixed(0)} · ${targets.analysts||'?'} analysts</span>`;
+  } else if (tgtEl) {
+    tgtEl.textContent = '—';
   }
 }
 
@@ -920,7 +945,7 @@ function getSectorMultiple(industry, table, def) {
 }
 function isHighGrowth(growth) { return growth > 15; }
 
-function updateIV(quote, m, profile, fmp) {
+function updateIV(quote, m, profile, fmp, targets) {
   const price    = quote.c;
   const industry = profile?.finnhubIndustry || '';
   const sectorPE   = getSectorMultiple(industry, SECTOR_PE, 18);
@@ -956,13 +981,6 @@ function updateIV(quote, m, profile, fmp) {
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
   const methods = [];
-
-  // ── Method 0: FMP DCF (professionally computed) ──────────────────
-  // Highest weight — based on actual SEC filings via FMP
-  if (fmp?.dcf && fmp.dcf > 0) {
-    methods.push({ name:'FMP DCF', short:'FMP', value:fmp.dcf, weight:3,
-      desc:`Professionally computed DCF from FMP · based on SEC filing cash flows` });
-  }
 
   // ── Method 1: FCF-based DCF (10yr) ──────────────────────────────
   if (fcfPS > 0) {
@@ -1048,6 +1066,26 @@ function updateIV(quote, m, profile, fmp) {
     const v = bvps * fairPB;
     if (v > 0) methods.push({ name:'P/B (ROE)', short:'PB', value:v, weight:0.5,
       desc:`$${bvps.toFixed(2)} BVPS × ${fairPB.toFixed(1)}× (ROE capped ${cappedROE.toFixed(0)}% ÷ 9% CoE)` });
+  }
+
+  // ── Method: DDM (Dividend Discount Model) ────────────────────────
+  // Only for dividend-paying stocks: V = D1 / (r - g)
+  const divTTM   = m['dividendPerShareTTM'] || 0;
+  const divGrow  = (m['dividendGrowthRate5Y'] || 0) / 100;
+  const wacc     = 0.09; // assumed 9% cost of equity
+  if (divTTM > 0 && divGrow > 0 && divGrow < wacc) {
+    const d1 = divTTM * (1 + divGrow);
+    const v  = d1 / (wacc - divGrow);
+    if (v > 0) methods.push({ name:'DDM (Gordon Growth)', short:'DDM', value:v, weight:1.5,
+      desc:`Div $${divTTM.toFixed(2)} × (1+${(divGrow*100).toFixed(1)}%) ÷ (9% WACC − ${(divGrow*100).toFixed(1)}% growth)` });
+  }
+
+  // ── Method: Analyst Price Target ─────────────────────────────────
+  // Finnhub consensus mean target — highest weight, real-world signal
+  if (targets?.targetMean && targets.targetMean > 0) {
+    const n = targets.analysts ? ` · ${targets.analysts} analysts` : '';
+    methods.push({ name:`Analyst Target${n}`, short:'ANL', value:targets.targetMean, weight:3,
+      desc:`Consensus mean $${targets.targetMean.toFixed(2)} | Low $${(targets.targetLow||0).toFixed(2)} – High $${(targets.targetHigh||0).toFixed(2)}` });
   }
 
   // ── Fallback ─────────────────────────────────────────────────────
