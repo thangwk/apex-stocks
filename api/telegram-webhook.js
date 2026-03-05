@@ -38,21 +38,33 @@ export default async function handler(req, res) {
       if (!arg) {
         await sendTelegram(chatId, '⚠️ Usage: /add AAPL');
       } else {
-        await sendTelegram(chatId, `⏳ Verifying <b>${arg}</b>...`);
-        try {
-          const r = await fetch(
-            `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(arg)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
-          );
-          const d = await r.json();
-          if (d.status === 'error') throw new Error('Ticker not found');
-          const list = await addTicker(chatId, arg);
+        const currentList = await getWatchlist(chatId);
+        if (currentList.length >= 10) {
           await sendTelegram(chatId,
-            `✅ <b>${arg}</b> added to your watchlist!\n\n` +
-            `Your watchlist (${list.length}):\n${list.map(t => `• ${t}`).join('\n')}\n\n` +
-            `Send /briefing to analyse now.`
+            `⚠️ <b>Watchlist full (10/10)</b>\n\n` +
+            `You've reached the maximum of 10 stocks.\n` +
+            `Remove a stock first with /remove AAPL before adding a new one.\n\n` +
+            `Your current watchlist:\n${currentList.map(t => `• ${t}`).join('\n')}`
           );
-        } catch(e) {
-          await sendTelegram(chatId, `❌ <b>${arg}</b> not found. Check the ticker symbol.`);
+        } else {
+          await sendTelegram(chatId, `⏳ Verifying <b>${arg}</b>...`);
+          try {
+            const r = await fetch(
+              `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(arg)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
+            );
+            const d = await r.json();
+            if (d.status === 'error') throw new Error('Ticker not found');
+            const list = await addTicker(chatId, arg);
+            const remaining = 10 - list.length;
+            await sendTelegram(chatId,
+              `✅ <b>${arg}</b> added to your watchlist!\n\n` +
+              `Your watchlist (${list.length}/10):\n${list.map(t => `• ${t}`).join('\n')}\n\n` +
+              `${remaining > 0 ? `${remaining} slot${remaining > 1 ? 's' : ''} remaining.` : `⚠️ Watchlist full — remove a stock to add more.`}\n\n` +
+              `Send /briefing to analyse now.`
+            );
+          } catch(e) {
+            await sendTelegram(chatId, `❌ <b>${arg}</b> not found. Check the ticker symbol.`);
+          }
         }
       }
 

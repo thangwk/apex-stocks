@@ -490,7 +490,7 @@
 <header>
   <div class="logo">AP<span>EX</span></div>
   <div class="header-mid">STOCK INTELLIGENCE TERMINAL</div>
-  <div class="live-badge"><div class="live-dot"></div>FINNHUB · LIVE</div>
+  <div class="live-badge" id="liveBadge"><div class="live-dot"></div>FINNHUB · LIVE</div>
 </header>
 
 <div class="main">
@@ -714,6 +714,23 @@ async function apiMetrics(symbol) {
   return r.json();
 }
 
+function updateLiveBadge(q, p, m) {
+  const badge = document.getElementById('liveBadge');
+  if (!badge) return;
+  const allCached = q._cached && p._cached && m._cached;
+  const someCached = q._cached || p._cached || m._cached;
+  if (allCached) {
+    badge.innerHTML = `<div class="live-dot" style="background:var(--gold)"></div>CACHED · <15MIN`;
+    badge.style.color = 'var(--gold)';
+  } else if (someCached) {
+    badge.innerHTML = `<div class="live-dot"></div>PARTIAL CACHE`;
+    badge.style.color = 'var(--bull)';
+  } else {
+    badge.innerHTML = `<div class="live-dot"></div>LIVE · FRESH`;
+    badge.style.color = 'var(--bull)';
+  }
+}
+
 // ── MAIN ANALYZE ──
 async function analyzeStock() {
   const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
@@ -747,6 +764,7 @@ async function analyzeStock() {
     metrics = m.metric || {};
     lastFundamentals = { quote, profile, metrics };
 
+    updateLiveBadge(q, p, m);
     updateHero(ticker, quote, profile);
     updateMetrics(quote, metrics);
     updateIV(quote, metrics, profile);
@@ -1734,6 +1752,9 @@ async function addToWatchlist() {
   if (watchlist.find(w => w.ticker === ticker)) {
     showWlNotif(`${ticker} is already in your watchlist`, 'hold'); return;
   }
+  if (watchlist.length >= 10) {
+    showWlNotif(`Watchlist full (10/10) — remove a stock first`, 'sell'); return;
+  }
   input.value = '';
   showWlNotif(`Adding ${ticker}...`, 'hold');
 
@@ -1907,6 +1928,10 @@ function updateWlBadge() {
   if (!badge) return;
   badge.textContent  = buys;
   badge.style.display = buys > 0 ? 'flex' : 'none';
+
+  // Update title with count/10
+  const titleEl = document.querySelector('.wl-title');
+  if (titleEl) titleEl.textContent = `WATCHLIST (${watchlist.length}/10)`;
 }
 
 function loadFromWatchlist(ticker) {
