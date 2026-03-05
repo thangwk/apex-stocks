@@ -1,13 +1,30 @@
-import { getWatchlist, addTicker, removeTicker, clearWatchlist, registerUser, getAllUsers, getUserProfile } from './_redis.js';
+import { getWatchlist, addTicker, removeTicker, clearWatchlist, registerUser, getAllUsers, getUserProfile, getClient } from './_redis.js';
 import { runAnalysis, sendTelegram, formatStockBlock } from './_analysis.js';
 
 const OWNER_ID = process.env.TELEGRAM_CHAT_ID;
+
+async function acquireLock(chatId) {
+  try {
+    const redis = await getClient();
+    const key   = `apex:lock:briefing:${chatId}`;
+    // NX = only set if not exists, EX = expire after 10 min (safety fallback)
+    const result = await redis.set(key, '1', { NX: true, EX: 600 });
+    return result === 'OK'; // true = lock acquired, false = already locked
+  } catch(e) { return true; } // fail open — allow if Redis error
+}
+
+async function releaseLock(chatId) {
+  try {
+    const redis = await getClient();
+    await redis.del(`apex:lock:briefing:${chatId}`);
+  } catch(e) { /* non-fatal */ }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const msg = req.body?.message;
-  if (!msg)  return res.status(200).end();
+  if (!msg) return res.status(200).end();
 
   const chatId = msg.chat.id.toString();
   const from   = msg.from || {};
@@ -15,6 +32,9 @@ export default async function handler(req, res) {
   const parts  = text.split(/\s+/);
   const cmd    = parts[0]?.toLowerCase().split('@')[0];
   const arg    = parts[1]?.toUpperCase();
+
+  // ── Respond 200 to Telegram IMMEDIATELY — prevents all retries ──
+  res.status(200).end();
 
   // Register/update user profile on every message
   await registerUser(chatId, from);
@@ -95,16 +115,27 @@ export default async function handler(req, res) {
       if (list.length === 0) {
         await sendTelegram(chatId, `⚠️ Your watchlist is empty.\n\nAdd stocks with /add AAPL`);
       } else {
-        const estSecs = list.length * 8;
-        const estStr  = estSecs < 60 ? `~${estSecs}s` : `~${Math.ceil(estSecs/60)} min`;
-        await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''} (${estStr})...\nEach result will appear as it's ready.`);
+        // ── Redis lock — prevent duplicate runs from Telegram retries ──
+        const locked = await acquireLock(chatId);
+        if (!locked) {
+          await sendTelegram(chatId, `⏳ A briefing is already running. Please wait for it to finish.`);
+          return;
+        }
 
-        const onResult = async (result) => {
-          await sendTelegram(chatId, formatStockBlock(result));
-        };
+        try {
+          const estSecs = list.length * 8;
+          const estStr  = estSecs < 60 ? `~${estSecs}s` : `~${Math.ceil(estSecs/60)} min`;
+          await sendTelegram(chatId, `📊 <b>APEX BRIEFING</b> — ${new Date().toDateString()}\n\n⏳ Analysing ${list.length} stock${list.length>1?'s':''} (${estStr})...\nEach result will appear as it's ready.`);
 
-        const { footer } = await runAnalysis(list, onResult);
-        await sendTelegram(chatId, footer);
+          const onResult = async (result) => {
+            await sendTelegram(chatId, formatStockBlock(result));
+          };
+
+          const { footer } = await runAnalysis(list, onResult);
+          await sendTelegram(chatId, footer);
+        } finally {
+          await releaseLock(chatId); // always release, even if analysis throws
+        }
       }
 
     } else if (cmd === '/clear') {
@@ -112,7 +143,6 @@ export default async function handler(req, res) {
       await sendTelegram(chatId, '🗑 Your watchlist has been cleared.');
 
     } else if (cmd === '/users') {
-      // Admin only
       if (chatId !== OWNER_ID) {
         await sendTelegram(chatId, `❌ Not authorised.`);
       } else {
@@ -135,7 +165,6 @@ export default async function handler(req, res) {
               : 'unknown';
             return `• <b>${name}</b>${you}\n  Watchlist: ${stocks}\n  Last seen: ${lastSeen}`;
           }));
-
           await sendTelegram(chatId,
             `👥 <b>APEX Users (${userIds.length})</b>\n\n${lines.join('\n\n')}`
           );
@@ -149,7 +178,6 @@ export default async function handler(req, res) {
   } catch(e) {
     console.error('Webhook error:', e);
     await sendTelegram(chatId, `❌ Something went wrong: ${e.message}`);
+    await releaseLock(chatId); // release lock on unexpected error
   }
-
-  res.status(200).end();
 }
