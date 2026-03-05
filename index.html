@@ -81,7 +81,17 @@
   .iv-badge.under { background:rgba(0,230,118,.2); color:var(--bull); border:1px solid rgba(0,230,118,.35); }
   .iv-badge.over  { background:rgba(255,23,68,.2);  color:var(--bear); border:1px solid rgba(255,23,68,.35); }
   .iv-badge.fair  { background:rgba(0,212,255,.12); color:var(--accent); border:1px solid rgba(0,212,255,.3); }
-  .bar-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-bottom:5px; }
+  .bar-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-bottom:5px; gap:6px; }
+
+  /* IV breakdown rows */
+  .iv-row-item { display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px solid rgba(26,37,53,0.6); }
+  .iv-row-left { display:flex; align-items:center; gap:6px; }
+  .iv-row-tag  { font-family:'Space Mono',monospace; font-size:8px; background:var(--bg3); border:1px solid var(--border); border-radius:3px; padding:1px 5px; color:var(--accent); letter-spacing:1px; }
+  .iv-row-name { font-family:'Space Mono',monospace; font-size:9px; color:var(--muted); }
+  .iv-row-right { display:flex; align-items:center; gap:8px; }
+  .iv-row-val  { font-family:'Space Mono',monospace; font-size:10px; font-weight:700; }
+  .iv-row-diff { font-family:'Space Mono',monospace; font-size:9px; }
+  .iv-row-desc { font-family:'Space Mono',monospace; font-size:8px; color:rgba(61,90,122,0.8); padding:2px 0 6px 0; line-height:1.5; }
   .bar-track { height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
   .bar-fill { height:100%; border-radius:3px; transition:width 1s ease; }
 
@@ -247,6 +257,95 @@
   ::-webkit-scrollbar { width:4px; height:4px; }
   ::-webkit-scrollbar-track { background:var(--bg2); }
   ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  /* ── WATCHLIST PANEL ── */
+  .wl-panel {
+    position:fixed; right:0; top:0; bottom:0; width:320px;
+    background:var(--bg2); border-left:1px solid var(--border);
+    display:flex; flex-direction:column; z-index:150;
+    transform:translateX(100%); transition:transform .3s ease;
+  }
+  .wl-panel.open { transform:translateX(0); }
+  .wl-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px; border-bottom:1px solid var(--border);
+    background:var(--bg3);
+  }
+  .wl-title { font-size:11px; font-weight:800; letter-spacing:3px; color:var(--accent); }
+  .wl-close { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:4px 8px; }
+  .wl-close:hover { color:var(--text); }
+  .wl-add-row { display:flex; gap:6px; padding:12px; border-bottom:1px solid var(--border); }
+  .wl-input {
+    flex:1; background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+    padding:8px 10px; color:var(--text); font-family:'Space Mono',monospace;
+    font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; outline:none;
+  }
+  .wl-input:focus { border-color:var(--accent); }
+  .wl-add-btn {
+    background:var(--accent); color:var(--bg); border:none; border-radius:6px;
+    padding:8px 14px; font-weight:800; font-size:11px; cursor:pointer; letter-spacing:1px;
+  }
+  .wl-add-btn:hover { opacity:.85; }
+  .wl-list { flex:1; overflow-y:auto; padding:8px; }
+  .wl-empty { text-align:center; padding:40px 16px; font-family:'Space Mono',monospace; font-size:11px; color:var(--muted); line-height:1.8; }
+  .wl-item {
+    background:var(--bg3); border:1px solid var(--border); border-radius:8px;
+    padding:12px; margin-bottom:8px; cursor:pointer; transition:border-color .2s;
+    position:relative;
+  }
+  .wl-item:hover { border-color:var(--accent); }
+  .wl-item-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; }
+  .wl-ticker { font-size:15px; font-weight:800; letter-spacing:2px; color:var(--text); }
+  .wl-name { font-size:9px; color:var(--muted); margin-top:1px; font-family:'Space Mono',monospace; }
+  .wl-price { font-family:'Space Mono',monospace; font-size:16px; font-weight:700; color:var(--text); text-align:right; }
+  .wl-chg { font-family:'Space Mono',monospace; font-size:10px; text-align:right; margin-top:1px; }
+  .wl-chg.bull { color:var(--bull); }
+  .wl-chg.bear { color:var(--bear); }
+  .wl-signals { display:flex; gap:6px; flex-wrap:wrap; }
+  .wl-sig {
+    font-family:'Space Mono',monospace; font-size:9px; font-weight:700; letter-spacing:1px;
+    padding:2px 7px; border-radius:3px;
+  }
+  .wl-sig.buy  { background:rgba(0,230,118,.15); color:var(--bull); border:1px solid rgba(0,230,118,.3); }
+  .wl-sig.sell { background:rgba(255,23,68,.15);  color:var(--bear); border:1px solid rgba(255,23,68,.3); }
+  .wl-sig.hold { background:rgba(0,212,255,.1);   color:var(--accent); border:1px solid rgba(0,212,255,.2); }
+  .wl-remove {
+    position:absolute; top:8px; right:8px; background:none; border:none;
+    color:var(--muted); font-size:14px; cursor:pointer; opacity:0; transition:opacity .2s;
+    line-height:1; padding:2px 5px;
+  }
+  .wl-item:hover .wl-remove { opacity:1; }
+  .wl-remove:hover { color:var(--bear); }
+  .wl-footer { padding:10px 12px; border-top:1px solid var(--border); font-family:'Space Mono',monospace; font-size:9px; color:var(--muted); display:flex; justify-content:space-between; }
+  .wl-refresh { background:none; border:1px solid var(--border); color:var(--accent); border-radius:4px; padding:4px 10px; font-size:9px; font-family:'Space Mono',monospace; cursor:pointer; letter-spacing:1px; }
+  .wl-refresh:hover { background:rgba(0,212,255,.08); }
+
+  /* Notification toast */
+  .wl-notif {
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:var(--bg3); border:1px solid var(--border); border-radius:8px;
+    padding:12px 20px; font-family:'Space Mono',monospace; font-size:11px;
+    color:var(--text); z-index:400; opacity:0; pointer-events:none;
+    transition:opacity .3s; white-space:nowrap; box-shadow:0 4px 20px rgba(0,0,0,.4);
+    max-width:90vw; white-space:normal; text-align:center;
+  }
+  .wl-notif.on { opacity:1; }
+  .wl-notif.buy-notif  { border-color:rgba(0,230,118,.5); }
+  .wl-notif.sell-notif { border-color:rgba(255,23,68,.5); }
+
+  /* Watchlist toggle button */
+  .wl-toggle {
+    position:fixed; right:0; top:50%; transform:translateY(-50%);
+    background:var(--accent); color:var(--bg); border:none; border-radius:8px 0 0 8px;
+    padding:14px 8px; font-size:11px; font-weight:800; letter-spacing:2px;
+    writing-mode:vertical-rl; cursor:pointer; z-index:140; transition:background .2s;
+  }
+  .wl-toggle:hover { background:#00b8d9; }
+  .wl-badge {
+    position:absolute; top:-6px; left:-6px; background:var(--bear);
+    color:white; border-radius:50%; width:18px; height:18px;
+    font-size:10px; display:flex; align-items:center; justify-content:center;
+    font-family:'Space Mono',monospace; font-weight:700;
+  }
 </style>
 </head>
 <body>
@@ -305,15 +404,19 @@
     <div class="sb-block">
       <div class="sb-label">Intrinsic Value (Multi-Method)</div>
       <div class="iv-row">
-        <div class="iv-num" id="ivNum">—</div>
+        <div class="iv-num" id="ivRange">—</div>
         <div class="iv-badge fair" id="ivBadge">—</div>
       </div>
-      <div class="bar-labels"><span>Margin of Safety</span><span id="ivPct">—</span></div>
-      <div class="bar-track"><div class="bar-fill" id="ivFill" style="width:0%"></div></div>
-      <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:7px;line-height:1.6;">
-        <div id="ivMethod" style="color:var(--accent);letter-spacing:1px;">—</div>
-        <div id="ivConf" style="margin-top:2px;">—</div>
+      <div class="bar-labels">
+        <span>Bear case</span>
+        <span id="ivMarginLo">—</span>
+        <span style="margin-left:auto">Bull case</span>
+        <span id="ivMarginHi">—</span>
       </div>
+      <div class="bar-track"><div class="bar-fill" id="ivFill" style="width:0%"></div></div>
+      <div id="ivMOS" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--gold);margin-top:6px;letter-spacing:1px;">—</div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:4px" id="ivConf">—</div>
+      <div id="ivBreakdown" style="margin-top:10px"></div>
     </div>
 
     <div class="sb-block">
@@ -587,155 +690,187 @@ function updateIV(quote, m) {
   const eps    = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
   const bvps   = m['bookValuePerShareAnnual'] || 0;
   const pe     = m['peBasicExclExtraTTM'] || 0;
-  const roe    = m['roeRfy'] || m['roeTTM'] || 0;           // Return on Equity %
+  const roe    = m['roeRfy'] || m['roeTTM'] || 0;
   const growth = Math.min(Math.max(m['revenueGrowth3Y'] || m['epsGrowth3Y'] || 5, 0), 30);
   const fcfPS  = m['freeCashFlowPerShareTTM'] || 0;
 
   const methods = [];
 
-  // ── Method 1: Graham Number ──────────────────────────────
-  // √(22.5 × EPS × BVPS) — works for profitable value stocks
+  // Method 1: Graham Number — √(22.5 × EPS × BVPS)
+  // Conservative floor. Best for mature, profitable companies.
   if (eps > 0 && bvps > 0) {
-    const gn = Math.sqrt(22.5 * eps * bvps);
-    methods.push({ name: 'Graham Number', value: gn, weight: 1 });
+    const v = Math.sqrt(22.5 * eps * bvps);
+    methods.push({ name: 'Graham Number', short: 'GN', value: v, weight: 1,
+      desc: `√(22.5 × $${eps.toFixed(2)} EPS × $${bvps.toFixed(2)} BVPS)` });
   }
 
-  // ── Method 2: Graham Growth Formula ─────────────────────
-  // EPS × (8.5 + 2g) × 4.4/Y — accounts for growth rate
-  // Using Y = 4.8 (approx current AAA bond yield)
+  // Method 2: Graham Growth — EPS × (8.5 + 2g) × 4.4/Y
+  // Adds a growth premium. Uses ~${growth}% revenue growth.
   if (eps > 0) {
-    const gg = eps * (8.5 + 2 * growth) * (4.4 / 4.8);
-    methods.push({ name: 'Graham Growth', value: gg, weight: 1.5 });
+    const v = eps * (8.5 + 2 * growth) * (4.4 / 4.8);
+    methods.push({ name: 'Graham Growth', short: 'GG', value: v, weight: 1.5,
+      desc: `$${eps.toFixed(2)} EPS × (8.5 + 2×${growth.toFixed(0)}%) × 4.4/4.8` });
   }
 
-  // ── Method 3: DCF (simplified) ──────────────────────────
-  // Use FCF/share if available, else EPS as proxy
-  // Value = FCF × (1+g)^5 / (r-g), r=9% discount rate
+  // Method 3: DCF 10-year — discounted cash flow at 9% rate
+  // Uses FCF/share if available, else 80% of EPS as proxy.
   const cashFlow = fcfPS > 0 ? fcfPS : eps > 0 ? eps * 0.8 : 0;
   if (cashFlow > 0) {
-    const r = 0.09, g = growth / 100;
-    const safeG = Math.min(g, r - 0.02); // g must be < r
-    const dcf = cashFlow * (1 + safeG) * (1 - Math.pow((1 + safeG) / (1 + r), 10)) / (r - safeG);
-    if (dcf > 0 && isFinite(dcf)) {
-      methods.push({ name: 'DCF (10yr)', value: dcf, weight: 2 });
+    const r = 0.09, g = Math.min(growth / 100, 0.07);
+    const v = cashFlow * (1 + g) * (1 - Math.pow((1 + g) / (1 + r), 10)) / (r - g);
+    if (v > 0 && isFinite(v)) {
+      methods.push({ name: 'DCF (10yr)', short: 'DCF', value: v, weight: 2,
+        desc: `FCF $${cashFlow.toFixed(2)}/sh · ${growth.toFixed(0)}% growth · 9% discount` });
     }
   }
 
-  // ── Method 4: P/E Mean Reversion ────────────────────────
-  // Fair value = EPS × sector-appropriate P/E
-  // Use historical market avg P/E of 17, adjusted for growth
+  // Method 4: P/E Mean Reversion — EPS × fair P/E
+  // Fair P/E = 17 (market avg) + growth premium, capped at 40.
   if (eps > 0) {
-    const fairPE = Math.min(17 + growth * 0.5, 40); // growth premium capped
-    const per = eps * fairPE;
-    methods.push({ name: 'P/E Reversion', value: per, weight: 1 });
+    const fairPE = Math.min(17 + growth * 0.5, 40);
+    const v = eps * fairPE;
+    methods.push({ name: 'P/E Reversion', short: 'PE', value: v, weight: 1,
+      desc: `$${eps.toFixed(2)} EPS × ${fairPE.toFixed(1)} fair P/E` });
   }
 
-  // ── Method 5: Price/Book fair value ─────────────────────
-  // Fair P/B based on ROE: P/B = ROE / cost_of_equity
+  // Method 5: P/B with ROE — BVPS × (ROE / cost of equity)
+  // Prices the book value relative to how well capital is deployed.
   if (bvps > 0 && roe > 0) {
-    const coe = 0.09; // cost of equity 9%
-    const fairPB = Math.min((roe / 100) / coe, 8); // cap at 8× book
-    const pbv = bvps * fairPB;
-    if (pbv > 0) methods.push({ name: 'P/B (ROE)', value: pbv, weight: 1 });
+    const fairPB = Math.min((roe / 100) / 0.09, 8);
+    const v = bvps * fairPB;
+    if (v > 0) methods.push({ name: 'P/B (ROE)', short: 'PB', value: v, weight: 1,
+      desc: `$${bvps.toFixed(2)} BVPS × ${fairPB.toFixed(1)}× fair P/B (ROE ${roe.toFixed(1)}%)` });
   }
 
-  // ── Combine: weighted average, drop outliers ─────────────
+  // Fallback
   if (methods.length === 0) {
-    // Last resort: normalise current P/E to market average
     if (pe > 0 && eps > 0) {
-      const iv = eps * 17;
-      renderIV(price, iv, ['P/E normalisation'], 0.5);
+      const v = eps * 17;
+      methods.push({ name: 'P/E Normalised', short: 'PE', value: v, weight: 1,
+        desc: `$${eps.toFixed(2)} EPS × 17 (market avg P/E)` });
     } else {
-      document.getElementById('ivNum').textContent = 'N/A';
-      document.getElementById('ivBadge').textContent = '—';
-      document.getElementById('ivPct').textContent = '—';
-      document.getElementById('ivMethod').textContent = 'Insufficient data';
+      renderIVEmpty(); return;
     }
-    return;
   }
 
-  // Filter out extreme outliers (> 3× median)
-  const vals = methods.map(m => m.value).sort((a,b) => a-b);
+  // Drop outliers > 3× or < 1/3 of median
+  const vals = methods.map(x => x.value).sort((a,b) => a-b);
   const median = vals[Math.floor(vals.length / 2)];
-  const filtered = methods.filter(m => m.value > 0 && m.value < median * 3 && m.value > median / 3);
-  const pool = filtered.length > 0 ? filtered : methods;
+  const pool = methods.filter(x => x.value > 0 && x.value < median * 3.5 && x.value > median / 3.5);
+  const final = pool.length > 0 ? pool : methods;
 
-  const totalWeight = pool.reduce((s, m) => s + m.weight, 0);
-  const iv = pool.reduce((s, m) => s + m.value * m.weight, 0) / totalWeight;
-  const methodNames = pool.map(m => m.name);
+  // Weighted average = midpoint
+  const totalW = final.reduce((s,x) => s + x.weight, 0);
+  const mid    = final.reduce((s,x) => s + x.value * x.weight, 0) / totalW;
 
-  renderIV(price, iv, methodNames, pool.length);
+  // Range = min to max of the pool (bear/bull spread)
+  const lo = Math.min(...final.map(x => x.value));
+  const hi = Math.max(...final.map(x => x.value));
+
+  renderIV(price, mid, lo, hi, final);
 }
 
-function renderIV(price, iv, methodNames, count) {
-  if (!iv || iv <= 0 || !isFinite(iv)) {
-    document.getElementById('ivNum').textContent = 'N/A';
-    document.getElementById('ivBadge').textContent = '—';
-    document.getElementById('ivPct').textContent = '—';
-    return;
-  }
+function renderIVEmpty() {
+  document.getElementById('ivRange').textContent    = 'N/A';
+  document.getElementById('ivBadge').textContent    = '—';
+  document.getElementById('ivMarginLo').textContent = '—';
+  document.getElementById('ivMarginHi').textContent = '—';
+  document.getElementById('ivBreakdown').innerHTML  = '<div style="color:var(--muted);font-size:10px">Insufficient fundamental data</div>';
+}
 
-  const margin = ((iv - price) / price * 100);
+function renderIV(price, mid, lo, hi, pool) {
+  const marginMid = ((mid  - price) / price * 100);
+  const marginLo  = ((lo   - price) / price * 100);
+  const marginHi  = ((hi   - price) / price * 100);
 
-  document.getElementById('ivNum').textContent = '$' + iv.toFixed(2);
-  document.getElementById('ivPct').textContent = Math.abs(margin).toFixed(1) + '%';
-  document.getElementById('ivMethod').textContent = methodNames.join(' · ');
+  // MOS-adjusted buy zone = low end discounted by 15%
+  const mosLo = (lo * 0.85).toFixed(2);
+  const mosMid = (mid * 0.85).toFixed(2);
 
+  document.getElementById('ivRange').textContent =
+    '$' + lo.toFixed(0) + ' – $' + hi.toFixed(0);
+  document.getElementById('ivMOS').textContent =
+    'MOS Buy Zone: $' + mosLo + ' – $' + mosMid + ' (15% discount)';
+
+  // Midpoint margin
+  document.getElementById('ivMarginLo').textContent =
+    (marginLo >= 0 ? '+' : '') + marginLo.toFixed(1) + '%';
+  document.getElementById('ivMarginHi').textContent =
+    (marginHi >= 0 ? '+' : '') + marginHi.toFixed(1) + '%';
+
+  // Badge & bar based on midpoint
   const fill  = document.getElementById('ivFill');
   const badge = document.getElementById('ivBadge');
-
-  if (margin > 10) {
+  if (marginMid > 10) {
     badge.textContent = 'UNDERVALUED'; badge.className = 'iv-badge under';
     fill.style.background = 'var(--bull)';
-  } else if (margin > 3) {
+  } else if (marginMid > 3) {
     badge.textContent = 'SLIGHT DISC.'; badge.className = 'iv-badge under';
     fill.style.background = 'var(--bull)';
-  } else if (margin < -15) {
+  } else if (marginMid < -15) {
     badge.textContent = 'OVERVALUED'; badge.className = 'iv-badge over';
     fill.style.background = 'var(--bear)';
-  } else if (margin < -5) {
+  } else if (marginMid < -5) {
     badge.textContent = 'SLIGHT PREM.'; badge.className = 'iv-badge over';
     fill.style.background = 'var(--bear)';
   } else {
     badge.textContent = 'FAIR VALUE'; badge.className = 'iv-badge fair';
     fill.style.background = 'var(--accent)';
   }
-  fill.style.width = Math.min(Math.abs(margin) * 2, 100) + '%';
+  fill.style.width = Math.min(Math.abs(marginMid) * 2, 100) + '%';
 
-  // Confidence indicator based on number of methods used
-  const conf = count >= 3 ? 'HIGH' : count === 2 ? 'MEDIUM' : 'LOW';
-  document.getElementById('ivConf').textContent = `${conf} CONFIDENCE · ${count} METHOD${count > 1 ? 'S' : ''}`;
+  // Confidence
+  const conf = pool.length >= 3 ? 'HIGH' : pool.length === 2 ? 'MEDIUM' : 'LOW';
+  document.getElementById('ivConf').textContent =
+    conf + ' CONFIDENCE · ' + pool.length + ' METHOD' + (pool.length > 1 ? 'S' : '');
+
+  // Method breakdown table
+  const breakdown = document.getElementById('ivBreakdown');
+  breakdown.innerHTML = pool.map(x => {
+    const diff = ((x.value - price) / price * 100);
+    const col  = diff > 3 ? 'var(--bull)' : diff < -5 ? 'var(--bear)' : 'var(--accent)';
+    return `
+      <div class="iv-row-item">
+        <div class="iv-row-left">
+          <span class="iv-row-tag">${x.short}</span>
+          <span class="iv-row-name">${x.name}</span>
+        </div>
+        <div class="iv-row-right">
+          <span class="iv-row-val" style="color:${col}">$${x.value.toFixed(2)}</span>
+          <span class="iv-row-diff" style="color:${col}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</span>
+        </div>
+      </div>
+      <div class="iv-row-desc">${x.desc}</div>`;
+  }).join('');
 
   // Recommendation
   const sl = (price * 0.96).toFixed(2);
-  const pt = (iv * 0.97).toFixed(2);
+  const pt = (mid * 0.97).toFixed(2);
   document.getElementById('tgtSL').textContent = '$' + sl;
   document.getElementById('tgtPT').textContent = '$' + pt;
-
   const recCard   = document.getElementById('recCard');
   const recAction = document.getElementById('recAction');
   const recBody   = document.getElementById('recBody');
-
-  if (margin > 10) {
+  if (marginMid > 10) {
     recCard.className = 'rec-card buy'; recAction.className = 'rec-action buy';
     recAction.textContent = 'BUY';
-    recBody.textContent = `Trading ${margin.toFixed(1)}% below intrinsic value. Risk/reward favours a long entry here.`;
-  } else if (margin > 3) {
+    recBody.textContent = `Trading ${marginMid.toFixed(1)}% below fair value midpoint ($${mid.toFixed(2)}). Risk/reward favours a long entry.`;
+  } else if (marginMid > 3) {
     recCard.className = 'rec-card buy'; recAction.className = 'rec-action buy';
     recAction.textContent = 'WATCH';
     recBody.textContent = `Slight discount to fair value. Consider scaling in on dips toward support.`;
-  } else if (margin < -15) {
+  } else if (marginMid < -15) {
     recCard.className = 'rec-card sell'; recAction.className = 'rec-action sell';
     recAction.textContent = 'SELL / HEDGE';
-    recBody.textContent = `Trading ${Math.abs(margin).toFixed(1)}% above intrinsic value. Consider trimming or buying protective puts.`;
-  } else if (margin < -5) {
+    recBody.textContent = `Trading ${Math.abs(marginMid).toFixed(1)}% above fair value. Consider trimming or buying protective puts.`;
+  } else if (marginMid < -5) {
     recCard.className = 'rec-card sell'; recAction.className = 'rec-action sell';
     recAction.textContent = 'CAUTION';
-    recBody.textContent = `Trading at a premium to fair value. Avoid chasing — wait for a pullback.`;
+    recBody.textContent = `Slight premium to fair value. Avoid chasing — wait for a pullback toward $${lo.toFixed(0)}–$${mid.toFixed(0)}.`;
   } else {
     recCard.className = 'rec-card hold'; recAction.className = 'rec-action hold';
     recAction.textContent = 'HOLD';
-    recBody.textContent = `Near fair value. Maintain position and watch key levels for the next directional move.`;
+    recBody.textContent = `Trading within fair value range ($${lo.toFixed(0)}–$${hi.toFixed(0)}). Watch key levels for next move.`;
   }
 
   // Options
@@ -1221,6 +1356,295 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key === 'Enter') analyzeStock(); });
 window.addEventListener('resize', () => { if (candleData.length) drawChart(candleData); });
+
+// ══════════════════════════════════════════════════════
+// ── WATCHLIST ──────────────────────────────────────────
+// ══════════════════════════════════════════════════════
+
+let watchlist = JSON.parse(localStorage.getItem('apex_watchlist') || '[]');
+let wlRefreshTimer = null;
+
+function saveWatchlist() {
+  localStorage.setItem('apex_watchlist', JSON.stringify(watchlist));
+}
+
+function toggleWatchlist() {
+  document.getElementById('wlPanel').classList.toggle('open');
+}
+
+async function addToWatchlist() {
+  const input = document.getElementById('wlInputEl');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) return;
+  if (watchlist.find(w => w.ticker === ticker)) {
+    showWlNotif(`${ticker} is already in your watchlist`, 'hold'); return;
+  }
+  input.value = '';
+
+  // Fetch basic quote to verify + get initial price
+  try {
+    const r = await fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}`);
+    const q = await r.json();
+    if (!q.c || q.c === 0) { showWlNotif(`${ticker} not found`, 'sell'); return; }
+
+    const rp = await fetch(`/api/profile?symbol=${encodeURIComponent(ticker)}`);
+    const p  = await rp.json();
+
+    watchlist.push({
+      ticker,
+      name: p.name || ticker,
+      price: q.c,
+      prevClose: q.pc,
+      addedAt: Date.now(),
+      alertBuy:  null,
+      alertSell: null,
+    });
+    saveWatchlist();
+    renderWatchlist();
+    showWlNotif(`${ticker} added to watchlist ✓`, 'buy');
+    startWlRefresh();
+  } catch(e) {
+    showWlNotif(`Failed to add ${ticker}`, 'sell');
+  }
+}
+
+function removeFromWatchlist(ticker) {
+  watchlist = watchlist.filter(w => w.ticker !== ticker);
+  saveWatchlist();
+  renderWatchlist();
+  updateWlBadge();
+}
+
+function renderWatchlist() {
+  const list = document.getElementById('wlList');
+  updateWlBadge();
+  if (watchlist.length === 0) {
+    list.innerHTML = `<div class="wl-empty">No stocks yet.<br>Add a ticker above<br>to start tracking.</div>`;
+    return;
+  }
+
+  list.innerHTML = watchlist.map(w => {
+    const chg    = ((w.price - w.prevClose) / w.prevClose * 100);
+    const bull   = chg >= 0;
+    const chgStr = (bull ? '+' : '') + chg.toFixed(2) + '%';
+
+    // Signal: simple momentum signal based on price vs prev close
+    let sigHtml = '';
+    if (chg > 1.5)       sigHtml = `<span class="wl-sig buy">▲ BUY SIGNAL</span>`;
+    else if (chg < -1.5) sigHtml = `<span class="wl-sig sell">▼ SELL SIGNAL</span>`;
+    else                 sigHtml = `<span class="wl-sig hold">― HOLD</span>`;
+
+    // Alert indicators
+    if (w.alertBuy  && w.price <= w.alertBuy)  sigHtml += `<span class="wl-sig buy">🔔 BUY ALERT</span>`;
+    if (w.alertSell && w.price >= w.alertSell) sigHtml += `<span class="wl-sig sell">🔔 SELL ALERT</span>`;
+
+    return `
+      <div class="wl-item" onclick="loadFromWatchlist('${w.ticker}')">
+        <button class="wl-remove" onclick="event.stopPropagation();removeFromWatchlist('${w.ticker}')">✕</button>
+        <div class="wl-item-top">
+          <div>
+            <div class="wl-ticker">${w.ticker}</div>
+            <div class="wl-name">${(w.name || '').substring(0, 22)}</div>
+          </div>
+          <div>
+            <div class="wl-price">$${w.price.toFixed(2)}</div>
+            <div class="wl-chg ${bull ? 'bull' : 'bear'}">${chgStr}</div>
+          </div>
+        </div>
+        <div class="wl-signals">${sigHtml}</div>
+        <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+          <input
+            type="number" placeholder="Buy alert $" value="${w.alertBuy || ''}"
+            onclick="event.stopPropagation()"
+            onchange="setAlert('${w.ticker}','buy',this.value)"
+            style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--bull);font-family:'Space Mono',monospace;font-size:10px;outline:none"
+          />
+          <input
+            type="number" placeholder="Sell alert $" value="${w.alertSell || ''}"
+            onclick="event.stopPropagation()"
+            onchange="setAlert('${w.ticker}','sell',this.value)"
+            style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--bear);font-family:'Space Mono',monospace;font-size:10px;outline:none"
+          />
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function setAlert(ticker, type, value) {
+  const w = watchlist.find(x => x.ticker === ticker);
+  if (!w) return;
+  const v = parseFloat(value);
+  if (type === 'buy')  w.alertBuy  = isNaN(v) ? null : v;
+  if (type === 'sell') w.alertSell = isNaN(v) ? null : v;
+  saveWatchlist();
+}
+
+function updateWlBadge() {
+  const alerts = watchlist.filter(w =>
+    (w.alertBuy  && w.price <= w.alertBuy) ||
+    (w.alertSell && w.price >= w.alertSell)
+  ).length;
+  const badge = document.getElementById('wlBadge');
+  badge.textContent = alerts;
+  badge.style.display = alerts > 0 ? 'flex' : 'none';
+}
+
+function loadFromWatchlist(ticker) {
+  document.getElementById('tickerInput').value = ticker;
+  toggleWatchlist();
+  analyzeStock();
+}
+
+async function refreshWatchlistPrices() {
+  if (watchlist.length === 0) return;
+  document.getElementById('wlRefreshTime').textContent = 'Refreshing...';
+
+  const results = await Promise.allSettled(
+    watchlist.map(w => fetch(`/api/quote?symbol=${encodeURIComponent(w.ticker)}`).then(r => r.json()))
+  );
+
+  const alertMsgs = [];
+  results.forEach((res, i) => {
+    if (res.status === 'fulfilled' && res.value.c) {
+      const w = watchlist[i];
+      const oldPrice = w.price;
+      w.price     = res.value.c;
+      w.prevClose = res.value.pc;
+
+      // Check price alerts
+      if (w.alertBuy  && oldPrice > w.alertBuy  && w.price <= w.alertBuy) {
+        const msg = `${w.ticker} hit your BUY alert!\nPrice: $${w.price.toFixed(2)} ≤ $${w.alertBuy}\nChange today: ${((w.price - w.prevClose)/w.prevClose*100).toFixed(2)}%`;
+        alertMsgs.push({ msg, type: 'buy' });
+        sendTelegramAlert(msg, 'buy');
+      }
+      if (w.alertSell && oldPrice < w.alertSell && w.price >= w.alertSell) {
+        const msg = `${w.ticker} hit your SELL alert!\nPrice: $${w.price.toFixed(2)} ≥ $${w.alertSell}\nChange today: ${((w.price - w.prevClose)/w.prevClose*100).toFixed(2)}%`;
+        alertMsgs.push({ msg, type: 'sell' });
+        sendTelegramAlert(msg, 'sell');
+      }
+    }
+  });
+
+  saveWatchlist();
+  renderWatchlist();
+
+  const now = new Date();
+  document.getElementById('wlRefreshTime').textContent =
+    'Updated ' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+
+  // Fire alerts sequentially
+  for (const a of alertMsgs) {
+    await showWlNotif(a.msg, a.type);
+    await delay(3500);
+  }
+
+  // Browser notification if supported
+  alertMsgs.forEach(a => {
+    if (Notification.permission === 'granted') {
+      new Notification('APEX Alert', { body: a.msg, icon: '/favicon.ico' });
+    }
+  });
+}
+
+async function sendTelegramAlert(message, type) {
+  try {
+    const r = await fetch('/api/alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, type }),
+    });
+    const data = await r.json();
+    if (!data.ok && data.error) console.warn('Telegram alert failed:', data.error);
+  } catch (e) {
+    console.warn('Telegram alert error:', e.message);
+  }
+}
+
+async function testTelegramAlert() {
+  const btn = document.getElementById('wlTestBtn');
+  btn.textContent = 'SENDING...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: '✅ APEX is connected! Your price alerts will be sent here.',
+        type: 'hold'
+      }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      showWlNotif('✅ Test message sent to Telegram!', 'buy');
+    } else {
+      showWlNotif('❌ ' + (data.error || 'Telegram not configured'), 'sell');
+    }
+  } catch(e) {
+    showWlNotif('❌ Failed: ' + e.message, 'sell');
+  }
+  btn.textContent = 'TEST ALERT';
+  btn.disabled = false;
+}
+  if (wlRefreshTimer) clearInterval(wlRefreshTimer);
+  wlRefreshTimer = setInterval(refreshWatchlistPrices, 60000); // every 60s
+}
+
+function showWlNotif(msg, type) {
+  return new Promise(resolve => {
+    const el = document.getElementById('wlNotif');
+    el.textContent = msg;
+    el.className = `wl-notif on ${type}-notif`;
+    setTimeout(() => { el.className = 'wl-notif'; resolve(); }, 3000);
+  });
+}
+
+function requestNotifPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+// Init watchlist on load
+renderWatchlist();
+if (watchlist.length > 0) {
+  startWlRefresh();
+  requestNotifPermission();
+}
+
+document.getElementById('wlInputEl').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addToWatchlist();
+});
 </script>
+
+<!-- ── WATCHLIST PANEL ── -->
+<button class="wl-toggle" onclick="toggleWatchlist(); requestNotifPermission()">
+  WATCHLIST
+  <span class="wl-badge" id="wlBadge" style="display:none">0</span>
+</button>
+
+<div class="wl-panel" id="wlPanel">
+  <div class="wl-header">
+    <div>
+      <div class="wl-title">WATCHLIST</div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-top:3px;letter-spacing:1px">📱 Telegram alerts enabled</div>
+    </div>
+    <button class="wl-close" onclick="toggleWatchlist()">✕</button>
+  </div>
+  <div class="wl-add-row">
+    <input id="wlInputEl" class="wl-input" placeholder="ADD TICKER..." maxlength="6" />
+    <button class="wl-add-btn" onclick="addToWatchlist()">ADD</button>
+  </div>
+  <div class="wl-list" id="wlList"></div>
+  <div class="wl-footer">
+    <span id="wlRefreshTime">Auto-refresh: 60s</span>
+    <div style="display:flex;gap:6px">
+      <button class="wl-refresh" id="wlTestBtn" onclick="testTelegramAlert()">📱 TEST ALERT</button>
+      <button class="wl-refresh" onclick="refreshWatchlistPrices()">↻ REFRESH</button>
+    </div>
+  </div>
+</div>
+
+<div class="wl-notif" id="wlNotif"></div>
+
 </body>
 </html>
