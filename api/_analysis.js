@@ -43,14 +43,21 @@ export function calcIV(m, industry) {
   const sectorEV   = getSectorMultiple(industry, SECTOR_EV, 14);
 
   const epsGAAP  = m.epsBasicExclExtraAnnual || m.epsTTM || 0;
+  const epsTTM   = m.epsTTM || epsGAAP;
   const bvps     = m.bookValuePerShareAnnual || 0;
   const roe      = m.roeRfy || m.roeTTM || 0;
-  const growth   = Math.min(Math.max(m.revenueGrowth3Y || m.epsGrowth3Y || 5, 0), 50);
   const fcfPS    = m.cashFlowPerShareTTM || m.freeCashFlowPerShareTTM || 0;
   const ebitdaPS = m.ebitdPerShareTTM || m.ebitdPerShareAnnual || m.ebitdaPerShare || 0;
   const evEbitda = m.evEbitdaTTM || 0;
   const revenuePS= m.revenuePerShareTTM || m.revenuePerShareAnnual || 0;
   const psRatio  = m.psTTM || 0;
+  const fwdPE    = m.forwardPE || 0;
+
+  // Best growth: highest of rev3Y, eps3Y, avg(TTM rev+eps)
+  const growth = Math.min(Math.max(
+    m.revenueGrowth3Y || 0, m.epsGrowth3Y || 0,
+    ((m.epsGrowthTTMYoy || 0) + (m.revenueGrowthTTMYoy || 0)) / 2, 3
+  ), 50);
   const highGrowth = growth > 15;
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
@@ -58,44 +65,51 @@ export function calcIV(m, industry) {
 
   // DCF on FCF
   if (fcfPS > 0) {
-    const r = 0.09, g = Math.min(growth/100, highGrowth ? 0.12 : 0.07);
+    const r = 0.09, g = Math.min(growth/100, highGrowth ? 0.12 : 0.08);
     const v = fcfPS * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
     if (v > 0 && isFinite(v)) methods.push({ name:'DCF/FCF', value:v, weight:2.5 });
   } else if (epsGAAP > 0) {
-    const r = 0.09, g = Math.min(growth/100, 0.07);
+    const r = 0.09, g = Math.min(growth/100, 0.08);
     const v = epsGAAP * 0.8 * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
     if (v > 0 && isFinite(v)) methods.push({ name:'DCF/EPS', value:v, weight:1.5 });
   }
 
+  // Forward P/E
+  if (fwdPE > 0 && epsTTM > 0)
+    methods.push({ name:'Fwd P/E', value:epsTTM * fwdPE * 0.85, weight:2 });
+
   // P/FCF
-  if (fcfPS > 0) methods.push({ name:`P/FCF`, value:fcfPS * sectorPFCF, weight:2 });
+  if (fcfPS > 0) methods.push({ name:'P/FCF', value:fcfPS * sectorPFCF, weight:2 });
 
   // EV/EBITDA
   if (ebitdaPS > 0) {
-    const fairEV = Math.min(sectorEV, evEbitda > 0 ? evEbitda * 0.85 : sectorEV);
+    const fairEV = evEbitda > 0 ? Math.min(sectorEV, evEbitda * 0.9) : sectorEV;
     methods.push({ name:'EV/EBITDA', value:ebitdaPS * fairEV, weight:2 });
   }
 
   // Sector P/E
   if (earningsPS > 0) methods.push({ name:'Sector P/E', value:earningsPS * sectorPE, weight:1.5 });
 
-  // PEG
-  if (earningsPS > 0 && growth > 0) {
+  // PEG (only if growth > 5%)
+  if (earningsPS > 0 && growth > 5) {
     const fairPE = Math.min(growth * 1.5, 60);
-    methods.push({ name:'PEG', value:earningsPS * fairPE, weight:1.5 });
+    methods.push({ name:'PEG', value:earningsPS * fairPE, weight:1 });
   }
 
-  // P/S (high growth only)
-  if (revenuePS > 0 && highGrowth) {
+  // P/S for tech stocks
+  if (revenuePS > 0 && (highGrowth || ['Technology','Software','Internet','Semiconductor'].some(s => industry.includes(s)))) {
     const fairPS = Math.min(psRatio > 0 ? psRatio * 0.8 : sectorEV * 0.4, 20);
     if (fairPS > 0) methods.push({ name:'P/S', value:revenuePS * fairPS, weight:1 });
   }
 
-  // Graham + P/B (value stocks only)
-  if (epsGAAP > 0 && bvps > 0 && !highGrowth)
+  // Graham (mature/value only — skip if high ROE like AAPL)
+  if (epsGAAP > 0 && bvps > 5 && !highGrowth && roe < 50)
     methods.push({ name:'Graham', value:Math.sqrt(22.5 * epsGAAP * bvps), weight:0.5 });
-  if (bvps > 0 && roe > 0 && !highGrowth) {
-    const fairPB = Math.min((roe/100)/0.09, 8);
+
+  // P/B with capped ROE
+  if (bvps > 0 && roe > 0) {
+    const cappedROE = Math.min(roe, 50);
+    const fairPB = Math.min((cappedROE/100)/0.09, 8);
     methods.push({ name:'P/B', value:bvps * fairPB, weight:0.5 });
   }
 
@@ -112,7 +126,6 @@ export function calcIV(m, industry) {
   const hi     = Math.max(...final.map(x => x.value));
   const mos    = mid * 0.85;
 
-  const marginPct = ((mid - 0) / mid * 100); // placeholder, caller passes price
   return { mid, lo, hi, mos };
 }
 

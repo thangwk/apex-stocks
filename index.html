@@ -881,99 +881,119 @@ function updateIV(quote, m, profile) {
   const sectorEV   = getSectorMultiple(industry, SECTOR_EV, 14);
 
   // ── Pull all available data ──────────────────────────────────────
-  const epsGAAP  = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
-  const bvps     = m['bookValuePerShareAnnual'] || 0;
-  const roe      = m['roeRfy'] || m['roeTTM'] || 0;
-  const growth   = Math.min(Math.max(m['revenueGrowth3Y'] || m['epsGrowth3Y'] || 5, 0), 50);
-  const fcfPS    = m['cashFlowPerShareTTM'] || m['freeCashFlowPerShareTTM'] || 0;
-  // Finnhub uses 'ebitdPerShare' (not ebitda) — check both
-  const ebitdaPS = m['ebitdPerShareTTM'] || m['ebitdPerShareAnnual'] || m['ebitdaPerShare'] || 0;
-  const evEbitda = m['evEbitdaTTM'] || 0;   // actual market EV/EBITDA
-  const evFCF    = m['currentEv/freeCashFlowTTM'] || 0;
-  const revenuePS= m['revenuePerShareTTM'] || m['revenuePerShareAnnual'] || 0;
-  const psRatio  = m['psTTM'] || 0;
+  const epsGAAP   = m['epsBasicExclExtraAnnual'] || m['epsTTM'] || 0;
+  const epsTTM    = m['epsTTM'] || epsGAAP;
+  const bvps      = m['bookValuePerShareAnnual'] || 0;
+  const roe       = m['roeRfy'] || m['roeTTM'] || 0;
+  const fcfPS     = m['cashFlowPerShareTTM'] || m['freeCashFlowPerShareTTM'] || 0;
+  const ebitdaPS  = m['ebitdPerShareTTM'] || m['ebitdPerShareAnnual'] || m['ebitdaPerShare'] || 0;
+  const evEbitda  = m['evEbitdaTTM'] || 0;
+  const revenuePS = m['revenuePerShareTTM'] || m['revenuePerShareAnnual'] || 0;
+  const psRatio   = m['psTTM'] || 0;
+  const fwdPE     = m['forwardPE'] || 0;
+
+  // Use the BEST of revenue/eps growth — whichever tells the more accurate story
+  const revGrowth3Y = m['revenueGrowth3Y'] || 0;
+  const epsGrowth3Y = m['epsGrowth3Y'] || 0;
+  const epsGrowthTTM= m['epsGrowthTTMYoy'] || 0;
+  const revGrowthTTM= m['revenueGrowthTTMYoy'] || 0;
+  // Best growth = highest of (rev3Y, eps3Y, average of TTM rev+eps) — capped at 50%
+  const bestGrowth = Math.min(
+    Math.max(revGrowth3Y, epsGrowth3Y, (epsGrowthTTM + revGrowthTTM) / 2, 3),
+    50
+  );
+  const growth     = bestGrowth;
   const highGrowth = isHighGrowth(growth);
 
-  // Use FCF as primary earnings for high-growth/SaaS; fall back to GAAP EPS
+  // Primary earnings — FCF for capital-light/tech, else EPS
   const earningsPS = fcfPS > 0 ? fcfPS : epsGAAP;
 
   const methods = [];
 
   // ── Method 1: FCF-based DCF (10yr) ──────────────────────────────
-  // Most accurate for SaaS — uses actual FCF not GAAP EPS
   if (fcfPS > 0) {
     const r = 0.09;
-    const g = Math.min(growth / 100, highGrowth ? 0.12 : 0.07); // allow higher g for growth cos
+    const g = Math.min(growth / 100, highGrowth ? 0.12 : 0.08);
     const v = fcfPS * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
     if (v > 0 && isFinite(v))
       methods.push({ name:'DCF on FCF (10yr)', short:'DCF', value:v, weight:2.5,
         desc:`FCF $${fcfPS.toFixed(2)}/sh · ${(g*100).toFixed(0)}% growth · 9% discount` });
   } else if (epsGAAP > 0) {
-    const r = 0.09, g = Math.min(growth / 100, 0.07);
+    const r = 0.09, g = Math.min(growth / 100, 0.08);
     const v = epsGAAP * 0.8 * (1+g) * (1 - Math.pow((1+g)/(1+r), 10)) / (r-g);
     if (v > 0 && isFinite(v))
       methods.push({ name:'DCF on EPS (10yr)', short:'DCF', value:v, weight:1.5,
         desc:`EPS $${epsGAAP.toFixed(2)} × 80% proxy · ${growth.toFixed(0)}% growth · 9% discount` });
   }
 
-  // ── Method 2: P/FCF multiple ─────────────────────────────────────
-  // Best for cash-generative SaaS — market pays for FCF not GAAP
+  // ── Method 2: Forward P/E ────────────────────────────────────────
+  // Most market-reflective — uses analyst consensus forward earnings
+  if (fwdPE > 0 && epsTTM > 0) {
+    // Apply a slight discount (85%) to current fwd P/E as fair value
+    const fairFwdPE = fwdPE * 0.85;
+    const v = epsTTM * fairFwdPE;
+    methods.push({ name:'Forward P/E', short:'FWD', value:v, weight:2,
+      desc:`EPS $${epsTTM.toFixed(2)} × ${fairFwdPE.toFixed(1)}× (85% of ${fwdPE.toFixed(1)}× fwd P/E)` });
+  }
+
+  // ── Method 3: P/FCF multiple ─────────────────────────────────────
   if (fcfPS > 0) {
     const v = fcfPS * sectorPFCF;
     methods.push({ name:`P/FCF (${industry || 'Sector'})`, short:'FCF', value:v, weight:2,
       desc:`FCF $${fcfPS.toFixed(2)}/sh × ${sectorPFCF}× sector P/FCF multiple` });
   }
 
-  // ── Method 3: EV/EBITDA ──────────────────────────────────────────
-  // Use actual EBITDA/sh from Finnhub (ebitdPerShare)
+  // ── Method 4: EV/EBITDA ──────────────────────────────────────────
   if (ebitdaPS > 0) {
-    const fairEV = Math.min(sectorEV, evEbitda > 0 ? evEbitda * 0.85 : sectorEV); // slight discount to current
+    // Use sector avg but cap at 90% of current market multiple
+    const fairEV = evEbitda > 0 ? Math.min(sectorEV, evEbitda * 0.9) : sectorEV;
     const v = ebitdaPS * fairEV;
     methods.push({ name:'EV/EBITDA', short:'EV', value:v, weight:2,
-      desc:`EBITDA $${ebitdaPS.toFixed(2)}/sh × ${fairEV.toFixed(0)}× (sector avg ${sectorEV}×)` });
+      desc:`EBITDA $${ebitdaPS.toFixed(2)}/sh × ${fairEV.toFixed(1)}× (sector ${sectorEV}×, mkt ${evEbitda.toFixed(1)}×)` });
   }
 
-  // ── Method 4: Sector P/E on FCF or EPS ──────────────────────────
+  // ── Method 5: Sector P/E on earnings ────────────────────────────
   if (earningsPS > 0) {
     const v = earningsPS * sectorPE;
-    const label = fcfPS > 0 ? `Sector P/E on FCF` : `Sector P/E (${industry || 'Market'})`;
+    const label = fcfPS > 0 ? `Sector P/E on FCF` : `Sector P/E`;
     methods.push({ name:label, short:'SPE', value:v, weight:1.5,
       desc:`$${earningsPS.toFixed(2)}/sh × ${sectorPE}× (${industry || 'market'} sector P/E)` });
   }
 
-  // ── Method 5: PEG Ratio (Lynch) ──────────────────────────────────
-  // Only meaningful if growth is sustainable — cap at 40×
-  if (earningsPS > 0 && growth > 0) {
-    const fairPE = Math.min(growth * 1.5, 60); // for high growth, PEG can be 1.5
+  // ── Method 6: PEG Ratio ──────────────────────────────────────────
+  // Only add if growth is meaningful (>5%) to avoid near-zero PE values
+  if (earningsPS > 0 && growth > 5) {
+    const fairPE = Math.min(growth * 1.5, 60);
     const v = earningsPS * fairPE;
-    if (v > 0) methods.push({ name:'PEG (Lynch)', short:'PEG', value:v, weight:1.5,
-      desc:`$${earningsPS.toFixed(2)}/sh × ${fairPE.toFixed(0)}× (growth-adjusted P/E, PEG≈1.5)` });
+    if (v > 0) methods.push({ name:'PEG (Lynch)', short:'PEG', value:v, weight:1,
+      desc:`$${earningsPS.toFixed(2)}/sh × ${fairPE.toFixed(0)}× (growth ${growth.toFixed(0)}%, PEG≈1.5)` });
   }
 
-  // ── Method 6: P/S Revenue multiple ──────────────────────────────
-  // Useful for high-growth SaaS where EPS understates value
-  if (revenuePS > 0 && highGrowth) {
-    const fairPS = Math.min(psRatio > 0 ? psRatio * 0.8 : sectorEV * 0.4, 20); // 20% discount to current P/S
+  // ── Method 7: P/S Revenue ────────────────────────────────────────
+  // Include for all tech/high-margin stocks regardless of growth
+  if (revenuePS > 0 && (highGrowth || ['Technology','Software','Internet','Semiconductors'].some(s => industry.includes(s)))) {
+    const fairPS = Math.min(psRatio > 0 ? psRatio * 0.8 : sectorEV * 0.4, 20);
     const v = revenuePS * fairPS;
     if (v > 0) methods.push({ name:'P/S Revenue', short:'PS', value:v, weight:1,
       desc:`Rev $${revenuePS.toFixed(2)}/sh × ${fairPS.toFixed(1)}× P/S (20% disc. to market)` });
   }
 
-  // ── Method 7: Graham Number ──────────────────────────────────────
-  // Only use for value/mature stocks — skip for high growth
-  if (epsGAAP > 0 && bvps > 0 && !highGrowth) {
+  // ── Method 8: Graham Number ──────────────────────────────────────
+  // Only for mature/value stocks with meaningful book value
+  if (epsGAAP > 0 && bvps > 5 && !highGrowth && roe < 50) {
     const v = Math.sqrt(22.5 * epsGAAP * bvps);
     methods.push({ name:'Graham Number', short:'GN', value:v, weight:0.5,
       desc:`√(22.5 × $${epsGAAP.toFixed(2)} EPS × $${bvps.toFixed(2)} BVPS)` });
   }
 
-  // ── Method 8: P/B with ROE ───────────────────────────────────────
-  // Skip for asset-light SaaS (BVPS understates value)
-  if (bvps > 0 && roe > 0 && !highGrowth) {
-    const fairPB = Math.min((roe/100) / 0.09, 8);
+  // ── Method 9: P/B with ROE ───────────────────────────────────────
+  // Cap ROE contribution at 50% to avoid extreme values like AAPL's 150% ROE
+  if (bvps > 0 && roe > 0) {
+    const cappedROE = Math.min(roe, 50);
+    const fairPB = Math.min((cappedROE/100) / 0.09, 8);
     const v = bvps * fairPB;
     if (v > 0) methods.push({ name:'P/B (ROE)', short:'PB', value:v, weight:0.5,
-      desc:`$${bvps.toFixed(2)} BVPS × ${fairPB.toFixed(1)}× (ROE ${roe.toFixed(1)}% ÷ 9% CoE)` });
+      desc:`$${bvps.toFixed(2)} BVPS × ${fairPB.toFixed(1)}× (ROE capped ${cappedROE.toFixed(0)}% ÷ 9% CoE)` });
   }
 
   // ── Fallback ─────────────────────────────────────────────────────
@@ -1047,10 +1067,13 @@ function renderIV(price, mid, lo, hi, pool) {
   }
   fill.style.width = Math.min(Math.abs(marginMid) * 2, 100) + '%';
 
-  // Confidence
+  // Confidence + industry
   const conf = pool.length >= 3 ? 'HIGH' : pool.length === 2 ? 'MEDIUM' : 'LOW';
+  const industryLabel = (arguments[5] || '').toUpperCase() || 'MARKET';
+  const sectorPELabel = arguments[6] || 18;
   document.getElementById('ivConf').textContent =
-    conf + ' CONFIDENCE · ' + pool.length + ' METHOD' + (pool.length > 1 ? 'S' : '');
+    conf + ' CONFIDENCE · ' + pool.length + ' METHOD' + (pool.length > 1 ? 'S' : '') +
+    ' · ' + industryLabel + ' · SECTOR P/E ' + sectorPELabel + '×';
 
   // Method breakdown table
   const breakdown = document.getElementById('ivBreakdown');
