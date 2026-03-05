@@ -146,7 +146,7 @@
   .ohlcv-i span:first-child { color:var(--muted); }
   .ohlcv-i span:last-child { color:var(--text); font-weight:700; margin-left:4px; }
 
-  #chart-wrap { flex:1; min-height:420px; position:relative; }
+  #chart-wrap { flex:1; height:380px; min-height:380px; max-height:380px; position:relative; overflow:hidden; }
   .chart-empty {
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     font-family:'Space Mono',monospace; font-size:13px; color:var(--muted); letter-spacing:2px;
@@ -462,7 +462,7 @@
     .opt-type   { font-size:9px; }
 
     /* Chart */
-    #chart-wrap { min-height:280px; }
+    #chart-wrap { height:300px; min-height:300px; max-height:300px; }
     .chart-topbar { padding:10px 14px; flex-wrap:wrap; gap:6px; }
     .ohlcv { gap:8px; font-size:10px; flex-wrap:wrap; }
     .chart-title { font-size:10px; }
@@ -1407,9 +1407,11 @@ function detectSignals(data) {
 // ── CHART ──
 function drawChart(data) {
   const wrap = document.getElementById('chart-wrap');
+  if (!wrap) return;
   wrap.innerHTML = '';
-  const W = wrap.clientWidth  || 900;
-  const H = wrap.clientHeight || 340;
+
+  const W = wrap.clientWidth  || wrap.offsetWidth  || 0;
+  const H = 380; // fixed height — never depends on wrap's clientHeight
   const m = { top:20, right:58, bottom:40, left:8 };
   const w = W - m.left - m.right;
   const h = H - m.top  - m.bottom;
@@ -2330,7 +2332,10 @@ function mobSwitch(tab) {
   } else if (tab === 'chart') {
     chartArea.classList.add('mob-active');
     document.getElementById('mobTabChart').classList.add('active');
-    if (window.lastTicker) setTimeout(() => drawChart(candleData), 100);
+    // Redraw after tab becomes visible — use requestAnimationFrame to ensure layout is done
+    if (candleData && candleData.length > 0) {
+      requestAnimationFrame(() => setTimeout(() => drawChart(candleData), 50));
+    }
   } else if (tab === 'watch') {
     wlPanel.classList.add('open');
     document.body.classList.add('wl-open');
