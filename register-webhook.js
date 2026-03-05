@@ -3,8 +3,8 @@
 //
 // node register-webhook.js
 
-const BOT_TOKEN  = 'YOUR_BOT_TOKEN';        // e.g. 7123456789:AAF...
-const VERCEL_URL = 'YOUR_VERCEL_URL';        // e.g. apex-stocks.vercel.app
+const BOT_TOKEN  = '8636840001:AAESQVBGCXe41bHqxUS3vz4M6E0juawldP4';        // e.g. 7123456789:AAF...
+const VERCEL_URL = 'https://apex-stocks.vercel.app/';        // e.g. apex-stocks.vercel.app
 
 const url = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=https://${VERCEL_URL}/api/telegram-webhook`;
 
