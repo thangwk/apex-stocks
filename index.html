@@ -1427,6 +1427,53 @@ window.addEventListener('resize', () => { if (candleData.length) drawChart(candl
 let watchlist = JSON.parse(localStorage.getItem('apex_watchlist') || '[]');
 let wlRefreshTimer = null;
 
+// ── On load: sync watchlist FROM Redis so Telegram additions appear ──
+async function syncWatchlistFromRedis() {
+  try {
+    const r    = await fetch('/api/watchlist-load');
+    const data = await r.json();
+    const redisTickers = data.tickers || [];
+
+    // Add any tickers from Redis that aren't in local watchlist
+    let changed = false;
+    for (const ticker of redisTickers) {
+      if (!watchlist.find(w => w.ticker === ticker)) {
+        // Fetch basic info for this new ticker
+        try {
+          const [qr, pr] = await Promise.all([
+            fetch(`/api/quote?symbol=${encodeURIComponent(ticker)}`),
+            fetch(`/api/profile?symbol=${encodeURIComponent(ticker)}`),
+          ]);
+          const q = await qr.json();
+          const p = await pr.json();
+          if (q.c) {
+            watchlist.push({
+              ticker, name: p.name || ticker,
+              price: q.c, prevClose: q.pc,
+              signal: '—', reasons: [], support: null, resist: null, rsi: null,
+              addedAt: Date.now(),
+            });
+            changed = true;
+          }
+        } catch(e) { console.warn('Could not load ticker from Redis:', ticker); }
+      }
+    }
+
+    // Remove tickers from local that were removed via Telegram
+    const before = watchlist.length;
+    watchlist = watchlist.filter(w => redisTickers.includes(w.ticker));
+    if (watchlist.length !== before) changed = true;
+
+    if (changed) {
+      localStorage.setItem('apex_watchlist', JSON.stringify(watchlist));
+      renderWatchlist();
+      showWlNotif('Watchlist synced from Telegram ✓', 'buy');
+    }
+  } catch(e) {
+    console.warn('Redis sync failed:', e.message);
+  }
+}
+
 // ── SYNC watchlist tickers to Redis (for Telegram + cron access) ──
 async function syncTickersToRedis() {
   try {
@@ -1753,6 +1800,9 @@ if (watchlist.length > 0) {
   startWlRefresh();
   requestNotifPermission();
 }
+
+// Sync from Redis (picks up any Telegram additions/removals)
+syncWatchlistFromRedis();
 
 document.getElementById('wlInputEl').addEventListener('keydown', e => {
   if (e.key === 'Enter') addToWatchlist();
