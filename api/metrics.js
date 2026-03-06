@@ -12,6 +12,38 @@ export default async function handler(req, res) {
   const sym    = symbol.toUpperCase();
   const token  = process.env.FINNHUB_API_KEY;
 
+
+  // ── Company news (type=news) ──────────────────────────────────────────
+  if (type === 'news') {
+    const cached = await getCache('news', sym);
+    if (cached) return res.status(200).json({ headlines: cached, _cached: true });
+
+    try {
+      const to   = new Date().toISOString().split('T')[0];
+      const from = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      const r = await fetch(
+        `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(sym)}&from=${from}&to=${to}&token=${token}`
+      );
+      if (!r.ok) return res.status(200).json({ headlines: [] });
+
+      const articles = await r.json();
+      if (!Array.isArray(articles)) return res.status(200).json({ headlines: [] });
+
+      const headlines = articles.slice(0, 5).map(a => ({
+        headline: a.headline || '',
+        summary:  (a.summary || '').slice(0, 200),
+        source:   a.source   || '',
+        time:     new Date((a.datetime || 0) * 1000)
+                    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      })).filter(h => h.headline);
+
+      await setCache('news', sym, headlines, TTL.NEWS);
+      return res.status(200).json({ headlines });
+    } catch(e) {
+      return res.status(200).json({ headlines: [], error: e.message });
+    }
+  }
+
   // ── Analyst targets ─────────────────────────────────────────────
   if (type === 'targets') {
     const cacheKey = 'targets';

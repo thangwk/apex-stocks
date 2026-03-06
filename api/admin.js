@@ -78,5 +78,20 @@ export default async function handler(req, res) {
     }
   }
 
-  res.status(400).json({ error: 'Unknown action. Use ?action=alert or ?action=cache-clear' });
+  // ── Clear briefing locks ────────────────────────────────────────────────
+  if (action === 'clear-lock') {
+    try {
+      const redis = await getClient();
+      const keys = await redis.keys('apex:lock:briefing:*');
+      if (keys.length) {
+        await Promise.all(keys.map(k => redis.del(k)));
+        return res.status(200).json({ cleared: keys });
+      }
+      return res.status(200).json({ cleared: [], message: 'No locks found' });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  res.status(400).json({ error: 'Unknown action. Use ?action=alert, ?action=cache-clear, or ?action=clear-lock' });
 }

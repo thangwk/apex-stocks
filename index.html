@@ -1571,7 +1571,7 @@ async function fetchOptionsAI(ticker, type, price, ivr, ivrText, signal, industr
     if (_cachedNewsForTicker.ticker === ticker && _cachedNewsForTicker.headlines.length) {
       headlines = _cachedNewsForTicker.headlines; // reuse from runAI — no extra API call
     } else {
-      const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
+      const nr = await fetch(`/api/metrics?type=news&symbol=${encodeURIComponent(ticker)}`);
       const nd = await nr.json();
       headlines = nd.headlines || [];
       _cachedNewsForTicker = { ticker, headlines };
@@ -2688,7 +2688,7 @@ async function runAI(ticker, quote, profile, metrics) {
     if (_cachedNewsForTicker.ticker === ticker) {
       headlines = _cachedNewsForTicker.headlines;
     } else {
-      const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
+      const nr = await fetch(`/api/metrics?type=news&symbol=${encodeURIComponent(ticker)}`);
       const nd = await nr.json();
       headlines = nd.headlines || [];
       _cachedNewsForTicker = { ticker, headlines }; // cache for options modal
