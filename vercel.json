@@ -30,9 +30,6 @@
     "api/telegram-webhook.js": {
       "maxDuration": 300
     },
-    "api/run-briefing.js": {
-      "maxDuration": 300
-    },
     "api/cron-briefing.js": {
       "maxDuration": 300
     }
