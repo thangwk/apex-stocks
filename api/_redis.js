@@ -3,7 +3,8 @@ import { createClient } from 'redis';
 let client = null;
 
 export async function getClient() {
-  if (client) return client;
+  // Reconnect guard: Vercel can reuse warm lambdas with a closed Redis connection
+  if (client && (client.isOpen || client.isReady)) return client;
   client = createClient({ url: process.env.REDIS_URL });
   client.on('error', (e) => console.error('Redis error:', e));
   await client.connect();
@@ -97,7 +98,7 @@ export async function getCache(type, symbol) {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     // Handle old format (raw object, no wrapper) — treat as expired
-    if (!parsed.hasOwnProperty('cachedAt')) {
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'cachedAt')) {
       await redis.del(cacheKey(type, symbol));
       return null;
     }
@@ -121,9 +122,11 @@ export async function setCache(type, symbol, data, ttlMs) {
   } catch(e) { /* cache write failure is non-fatal */ }
 }
 
-// TTL constants
+// ── TTL constants — single source of truth for all endpoints ────
 export const TTL = {
-  QUOTE:   15  * 60 * 1000,  // 15 minutes
-  METRICS: 24  * 60 * 60 * 1000,  // 24 hours
-  PROFILE: 7   * 24 * 60 * 60 * 1000,  // 7 days
+  QUOTE:   15 * 60 * 1000,            // 15 minutes
+  CANDLES: 6  * 60 * 60 * 1000,       // 6 hours
+  NEWS:    30 * 60 * 1000,            // 30 minutes
+  METRICS: 24 * 60 * 60 * 1000,       // 24 hours
+  PROFILE: 7  * 24 * 60 * 60 * 1000,  // 7 days
 };

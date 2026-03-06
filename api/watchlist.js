@@ -24,8 +24,14 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const { tickers } = req.body || {};
     if (!Array.isArray(tickers)) return res.status(400).json({ error: 'tickers array required' });
-    await saveWatchlist(ownerChatId, tickers);
-    return res.status(200).json({ ok: true, count: tickers.length });
+    // Validate: each ticker must be 1-6 uppercase letters/digits (covers BRK.B, BF.B etc.)
+    const TICKER_RE = /^[A-Z0-9]{1,6}([.\-][A-Z]{1,2})?$/i;
+    const valid = tickers
+      .map(t => (typeof t === 'string' ? t.trim().toUpperCase() : ''))
+      .filter(t => TICKER_RE.test(t))
+      .slice(0, 10); // hard-cap at 10 regardless of what UI sends
+    await saveWatchlist(ownerChatId, valid);
+    return res.status(200).json({ ok: true, count: valid.length });
   }
 
   // PUT — analyze and send briefing

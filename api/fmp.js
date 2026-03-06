@@ -15,6 +15,7 @@ function scoreToRecommendation(score) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'no-store');
   const { symbol } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
@@ -29,9 +30,6 @@ export default async function handler(req, res) {
     const url = `https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${sym}&apikey=${apiKey}`;
     const r = await fetch(url);
     const raw = await r.text();
-
-    // Return raw for debugging
-    if (req.query.debug) return res.status(200).json({ status: r.status, raw });
 
     let data;
     try { data = JSON.parse(raw); } catch(e) { return res.status(200).json({ rating: null, raw, parseError: e.message }); }

@@ -2,6 +2,7 @@ import { getCache, setCache, TTL } from './_redis.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'no-store');
   const { symbol } = req.query;
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
@@ -20,12 +21,18 @@ export default async function handler(req, res) {
     const d = await r.json();
     if (d.status === 'error') return res.status(404).json({ error: d.message });
 
+    const c  = parseFloat(d.close);
+    const pc = parseFloat(d.previous_close);
+    // Guard: reject response if price is missing or non-numeric
+    if (!isFinite(c) || c <= 0) {
+      return res.status(404).json({ error: `No valid price data for ${symbol}` });
+    }
     const result = {
-      c:  parseFloat(d.close),
-      o:  parseFloat(d.open),
-      h:  parseFloat(d.high),
-      l:  parseFloat(d.low),
-      pc: parseFloat(d.previous_close),
+      c,
+      o:  parseFloat(d.open)  || c,
+      h:  parseFloat(d.high)  || c,
+      l:  parseFloat(d.low)   || c,
+      pc: isFinite(pc) && pc > 0 ? pc : c,
     };
 
     await setCache('quote', symbol, result, TTL.QUOTE);

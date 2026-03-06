@@ -890,6 +890,22 @@
 <script>
 // ── STATE ──
 let currentTicker = '';
+let _cachedNewsForTicker = { ticker: null, headlines: [] }; // shared news cache between runAI and options modal
+// ── Client-side in-memory cache ─────────────────────────────────
+// Avoids hitting the server for the same ticker within 5 minutes.
+// Server-side Redis cache is still the canonical store.
+const _clientCache = new Map(); // key: ticker, value: { data, ts }
+const CLIENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function clientCacheGet(ticker) {
+  const entry = _clientCache.get(ticker);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CLIENT_CACHE_TTL) { _clientCache.delete(ticker); return null; }
+  return entry.data;
+}
+function clientCacheSet(ticker, data) {
+  _clientCache.set(ticker, { data, ts: Date.now() });
+}
 let currentTF = 'M';
 let candleData = [];
 let fullCandleData = [];
@@ -1313,7 +1329,9 @@ function buildPayoffSVG(payoff, price) {
   const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
 
   // Generate price range ±25% from current
-  const pMin = price * 0.75, pMax = price * 1.25;
+  const rangeMin = Math.min(price * 0.75, (optModalData.lo52 || price) * 0.95);
+  const rangeMax = Math.max(price * 1.25, (optModalData.hi52 || price) * 1.05);
+  const pMin = rangeMin, pMax = rangeMax;
   const pts = [];
   const steps = 80;
   for (let i = 0; i <= steps; i++) {
@@ -1456,39 +1474,76 @@ function buildScenarioTable(payoff, price) {
 
 // ── Position sizer ────────────────────────────────────────────────────────
 function buildPositionSizer(s, price, idx) {
-  const cost = Math.round(+(s.premium.replace(/[^0-9.]/g,'')) * 100);
+  // Guard: safely parse premium — NaN becomes 0 to avoid broken display
+  const rawPrem = parseFloat((s.premium || '').replace(/[^0-9.]/g, ''));
+  const cost = isFinite(rawPrem) && rawPrem > 0 ? Math.round(rawPrem * 100) : 0;
+  const rawGain = parseFloat((s.maxGain || '').replace(/[^0-9.]/g, ''));
+  const rorPct = cost > 0 && isFinite(rawGain) && rawGain > 0
+    ? `${((rawGain / cost) * 100).toFixed(0)}%` : '—';
   return `<div class="opt-sizer">
     <div class="opt-sizer-label">POSITION SIZER</div>
     <div class="opt-sizer-row">
-      <div class="opt-sizer-txt">Contracts</div>
+      <div class="opt-sizer-txt">Contracts (1–100)</div>
       <input class="opt-sizer-input" type="number" min="1" max="100" value="1"
         id="sizerContracts${idx}" oninput="updateSizer(${idx}, ${cost}, '${s.maxGain}')">
     </div>
     <div class="opt-sizer-results" id="sizerResults${idx}">
       <div class="opt-sizer-stat">
         <div class="opt-sizer-stat-label">TOTAL COST</div>
-        <div class="opt-sizer-stat-val" style="color:var(--bear)">$${cost}</div>
+        <div class="opt-sizer-stat-val" style="color:var(--bear)">$${cost > 0 ? cost.toLocaleString() : '—'}</div>
       </div>
       <div class="opt-sizer-stat">
         <div class="opt-sizer-stat-label">MAX GAIN</div>
         <div class="opt-sizer-stat-val" style="color:var(--bull)">${s.maxGain}</div>
       </div>
       <div class="opt-sizer-stat">
-        <div class="opt-sizer-stat-label">BREAKEVEN</div>
-        <div class="opt-sizer-stat-val" style="color:var(--accent)">$${s.breakeven}</div>
+        <div class="opt-sizer-stat-label">RETURN / RISK</div>
+        <div class="opt-sizer-stat-val" style="color:var(--accent)">${rorPct}</div>
       </div>
     </div>
   </div>`;
 }
 
 function updateSizer(idx, costPerContract, maxGainText) {
-  const n   = parseInt(document.getElementById(`sizerContracts${idx}`)?.value) || 1;
-  const total = costPerContract * n;
-  const res   = document.getElementById(`sizerResults${idx}`);
+  const input = document.getElementById(`sizerContracts${idx}`);
+  if (!input) return;
+  // Clamp to 1-100 contracts — prevent 0/negative breaking P&L display
+  let n = parseInt(input.value) || 1;
+  n = Math.max(1, Math.min(100, n));
+  input.value = n;
+
+  const safeCost = isFinite(costPerContract) && costPerContract >= 0 ? costPerContract : 0;
+  const total = safeCost * n;
+
+  const res = document.getElementById(`sizerResults${idx}`);
   if (!res) return;
-  res.children[0].querySelector('.opt-sizer-stat-val').textContent = `$${total.toLocaleString()}`;
-  res.children[1].querySelector('.opt-sizer-stat-val').textContent =
-    maxGainText.startsWith('$') ? `$${Math.round(+maxGainText.replace(/[^0-9.]/g,'') * n)}` : maxGainText;
+
+  // Total cost slot
+  const costEl = res.children[0]?.querySelector('.opt-sizer-stat-val');
+  if (costEl) costEl.textContent = `$${total.toLocaleString('en-US', { maximumFractionDigits:0 })}`;
+
+  // Max gain slot
+  const gainEl = res.children[1]?.querySelector('.opt-sizer-stat-val');
+  if (gainEl) {
+    if (maxGainText === 'Unlimited' || !maxGainText.startsWith('$')) {
+      gainEl.textContent = maxGainText;
+    } else {
+      const rawGain = parseFloat(maxGainText.replace(/[^0-9.]/g, ''));
+      gainEl.textContent = isFinite(rawGain) ? `$${Math.round(rawGain * n).toLocaleString()}` : '—';
+    }
+  }
+
+  // Return on risk slot (3rd child — ROR%)
+  const rorEl = res.children[2]?.querySelector('.opt-sizer-stat-val');
+  if (rorEl) {
+    if (safeCost > 0 && maxGainText.startsWith('$')) {
+      const rawGain = parseFloat(maxGainText.replace(/[^0-9.]/g, ''));
+      rorEl.textContent = isFinite(rawGain) && rawGain > 0
+        ? `${((rawGain / safeCost) * 100).toFixed(0)}%` : '—';
+    } else {
+      rorEl.textContent = '—';
+    }
+  }
 }
 
 function switchOptTab(idx) {
@@ -1508,12 +1563,20 @@ async function fetchOptionsAI(ticker, type, price, ivr, ivrText, signal, industr
                                priceTarget, stopLoss, upside, beta, hi52, lo52) {
   const typeLabel = { call:'bullish calls', put:'puts and hedges', spread:'spreads', income:'income/premium strategies' }[type] || type;
 
-  // ── Step 1: Fetch recent news headlines from Finnhub ─────────────────
+  // ── Step 1: Use shared news cache or fetch if not available ─────────
   let newsSection = '';
   let newsHtml = '';
   try {
-    const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
-    const nd = await nr.json();
+    let headlines = [];
+    if (_cachedNewsForTicker.ticker === ticker && _cachedNewsForTicker.headlines.length) {
+      headlines = _cachedNewsForTicker.headlines; // reuse from runAI — no extra API call
+    } else {
+      const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
+      const nd = await nr.json();
+      headlines = nd.headlines || [];
+      _cachedNewsForTicker = { ticker, headlines };
+    }
+    const nd = { headlines };
     if (nd.headlines?.length) {
       newsSection = '\n\nRECENT NEWS (last 7 days — factor these into your analysis):\n' +
         nd.headlines.map(h => `• [${h.time}] ${h.headline}${h.summary ? '. ' + h.summary : ''}`).join('\n');
@@ -1589,9 +1652,13 @@ Keep each section to 3–4 punchy sentences. Use $ amounts. No generic disclaime
 }
 
 // ── MAIN ANALYZE ──
+let _analysing = false; // in-flight guard — prevents double-click race condition
+
 async function analyzeStock() {
+  if (_analysing) return; // ignore if already running
   const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
   if (!ticker) { showToast('Enter a ticker symbol.'); return; }
+  _analysing = true;
   currentTicker = ticker;
 
   // Clear previous state immediately
@@ -1608,15 +1675,24 @@ async function analyzeStock() {
   setBusy(true, 'FETCHING QUOTE...');
 
   // Step 1 — fetch quote + profile + metrics + FMP + analyst targets together
+  // Check client-side cache first to avoid redundant server roundtrips
   let quote, profile, metrics, fmp, targets;
   try {
-    const [q, p, m, f, t] = await Promise.all([
-      apiQuote(ticker),
-      apiProfile(ticker),
-      apiMetrics(ticker),
-      apiFMP(ticker),
-      apiTargets(ticker),
-    ]);
+    const cached = clientCacheGet(ticker);
+    let q, p, m, f, t;
+    if (cached) {
+      ({ q, p, m, f, t } = cached);
+      setBusy(true, 'FROM CACHE...');
+    } else {
+      [q, p, m, f, t] = await Promise.all([
+        apiQuote(ticker),
+        apiProfile(ticker),
+        apiMetrics(ticker),
+        apiFMP(ticker),
+        apiTargets(ticker),
+      ]);
+      clientCacheSet(ticker, { q, p, m, f, t });
+    }
     if (!q.c || q.c === 0) throw new Error(`No data found for "${ticker}". Check the ticker symbol.`);
     quote   = q;
     profile = p;
@@ -1632,6 +1708,7 @@ async function analyzeStock() {
   } catch (e) {
     showToast(e.message);
     setBusy(false);
+    _analysing = false; // release guard on error
     return;
   }
 
@@ -1650,10 +1727,12 @@ async function analyzeStock() {
   // Both run concurrently — neither blocks the other
   await Promise.allSettled([chartPromise, aiPromise]);
 
-  // On mobile, auto-switch to chart tab after analysis completes
-  if (window.innerWidth <= 768) {
+  // On mobile, auto-switch to chart tab — but only if chart loaded successfully
+  if (window.innerWidth <= 768 && candleData.length > 0) {
     setTimeout(() => mobSwitch('chart'), 300);
   }
+
+  _analysing = false; // release in-flight guard
 }
 
 async function loadCandles(ticker) {
@@ -2601,14 +2680,22 @@ async function runAI(ticker, quote, profile, metrics) {
   const trend = quote.c > quote.pc ? 'UPTREND' : 'DOWNTREND';
   const chgPct = ((quote.c - quote.pc) / quote.pc * 100).toFixed(2);
 
-  // ── Fetch recent news first ──────────────────────────────────────────
+  // ── Fetch recent news — store in shared cache so options modal can reuse it ─
   let newsContext = '';
   try {
-    const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
-    const nd = await nr.json();
-    if (nd.headlines?.length) {
+    // Use cached result if available for this ticker (avoids double API call)
+    let headlines = [];
+    if (_cachedNewsForTicker.ticker === ticker) {
+      headlines = _cachedNewsForTicker.headlines;
+    } else {
+      const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
+      const nd = await nr.json();
+      headlines = nd.headlines || [];
+      _cachedNewsForTicker = { ticker, headlines }; // cache for options modal
+    }
+    if (headlines.length) {
       newsContext = '\n\nRECENT NEWS (last 7 days):\n' +
-        nd.headlines.map(h => `• [${h.time}] ${h.headline}`).join('\n');
+        headlines.map(h => `• [${h.time}] ${h.headline}`).join('\n');
     }
   } catch(_) {}
 
@@ -2719,6 +2806,9 @@ const STAGES = [
 ];
 
 function setBusy(on, msg = 'LOADING...') {
+  // Disable/enable run button to prevent concurrent requests
+  const btn = document.getElementById('runBtn');
+  if (btn) btn.disabled = on;
   const wrap = document.getElementById('spinner');
   const btn  = document.getElementById('runBtn');
   wrap.classList.toggle('on', on);

@@ -1,3 +1,5 @@
+import { getCache, setCache, TTL } from './_redis.js';
+
 // ── Shared technical + fundamental analysis ──
 
 function calcEMA(data, period) {
@@ -275,12 +277,11 @@ export function analyzeCandles(candles, currentPrice) {
 
 export async function fetchCandles(symbol) {
   try {
-    const { getCache, setCache } = await import('./_redis.js');
     const TTL_CANDLES = 6 * 60 * 60 * 1000; // 6 hours
     const cached = await getCache('candles', symbol);
     if (cached) return { data: cached, fromCache: true };
 
-    const r = await fetch(
+    const r = await fetchWithTimeout(
       `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=60&apikey=${process.env.TWELVE_DATA_API_KEY}`
     );
     const data = await r.json();
@@ -296,11 +297,10 @@ export async function fetchCandles(symbol) {
 
 export async function fetchQuote(symbol) {
   try {
-    const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('quote', symbol);
     if (cached) return { data: cached, fromCache: true };
 
-    const r = await fetch(
+    const r = await fetchWithTimeout(
       `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${process.env.TWELVE_DATA_API_KEY}`
     );
     const d = await r.json();
@@ -314,7 +314,6 @@ export async function fetchQuote(symbol) {
 export async function fetchFundamentals(symbol) {
   try {
     // Check cache first
-    const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('metrics', symbol);
     if (cached) return cached;
 
@@ -330,7 +329,6 @@ export async function fetchFundamentals(symbol) {
 
 export async function fetchProfile(symbol) {
   try {
-    const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('profile', symbol);
     if (cached && cached.finnhubIndustry) return cached;
 
@@ -436,7 +434,6 @@ export function formatStockBlock(r) {
 // ── Run full analysis for a list of tickers ──
 export async function fetchTargets(symbol) {
   try {
-    const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('targets', symbol);
     if (cached) return cached;
 
@@ -467,7 +464,6 @@ export async function fetchTargets(symbol) {
 
 export async function fetchFMP(symbol) {
   try {
-    const { getCache, setCache, TTL } = await import('./_redis.js');
     const cached = await getCache('fmp', symbol);
     if (cached && cached.rating) return cached;
 
@@ -495,6 +491,20 @@ export async function fetchFMP(symbol) {
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
+// Fetch with timeout — prevents Vercel function hanging if upstream API is slow
+async function fetchWithTimeout(url, opts = {}, ms = 8000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { ...opts, signal: ctrl.signal });
+    return r;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
+
 // Twelve Data free tier = 8 calls/minute
 // fetchQuote = 1 call, fetchCandles = 1 call → 2 per stock
 // Process one stock at a time serially, 8s gap between stocks = max 7.5 stocks/min safely
@@ -521,17 +531,20 @@ export async function runAnalysis(tickers, onResult) {
         apiCallsSinceLastDelay += (!quoteFromCache ? 1 : 0) + (!candlesFromCache ? 1 : 0);
 
         // If we've made 6+ calls since last delay, enforce 60s window
+        // Track window: if 6+ calls made, wait until 60s has elapsed since window start
         if (apiCallsSinceLastDelay >= 6) {
           const elapsed = now - lastApiCallTime;
-          const wait = Math.max(0, 60000 - elapsed);
+          const wait = Math.max(0, 62000 - elapsed); // 62s for safety margin
           if (wait > 0) {
-            console.log(`Rate limit pause: ${wait}ms (${apiCallsSinceLastDelay} calls made)`);
+            console.log(`Rate limit pause: ${Math.round(wait/1000)}s (${apiCallsSinceLastDelay} live calls in window)`);
             await delay(wait);
           }
+          // Reset window
           apiCallsSinceLastDelay = 0;
           lastApiCallTime = Date.now();
-        } else if (lastApiCallTime === 0) {
-          lastApiCallTime = now;
+        } else {
+          // Always update window start time on first call
+          if (lastApiCallTime === 0) lastApiCallTime = now;
         }
       }
 
