@@ -120,10 +120,11 @@
 
   .opts-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .opt-card {
-    background:var(--bg3); border:1px solid var(--border); border-radius:8px;
-    padding:14px 13px; transition:border-color .2s, background .2s;
+    background:var(--bg3); border:1px solid var(--border); border-radius:10px;
+    padding:16px 15px; transition:border-color .2s, background .2s, transform .15s;
     cursor:pointer; position:relative;
   }
+  .opt-card:active { transform:scale(0.97); }
   .opt-card:hover { border-color:var(--accent); background:rgba(0,212,255,0.06); }
   .opt-card::after {
     content:'▶'; position:absolute; bottom:9px; right:10px;
@@ -142,31 +143,51 @@
   /* ── Options Modal ── */
   .opt-modal-overlay {
     display:none; position:fixed; inset:0; z-index:1000;
-    background:rgba(0,0,0,0.8); backdrop-filter:blur(8px);
-    align-items:center; justify-content:center; padding:20px;
+    background:rgba(0,0,0,0.85); backdrop-filter:blur(12px);
+    align-items:center; justify-content:center; padding:24px 20px;
   }
   .opt-modal-overlay.open { display:flex; }
   .opt-modal {
-    background:var(--bg2); border:1px solid var(--accent);
-    border-radius:14px; width:100%; max-width:640px; max-height:88vh;
+    background:var(--bg2); border:1px solid rgba(0,212,255,0.5);
+    border-radius:16px; width:100%; max-width:1080px; max-height:94vh;
     display:flex; flex-direction:column; overflow:hidden;
-    box-shadow:0 0 60px rgba(0,212,255,0.18);
-    animation:modalIn .2s ease;
+    box-shadow:0 0 100px rgba(0,212,255,0.25), 0 30px 60px rgba(0,0,0,0.7);
+    animation:modalIn .25s cubic-bezier(.2,.8,.3,1);
+  }
+  @media (max-width:600px) {
+    .opt-modal { border-radius:12px 12px 0 0; max-height:96vh; margin-top:auto; }
+    .opt-modal-overlay { align-items:flex-end; padding:0; }
   }
   @keyframes modalIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
   .opt-modal-header {
     display:flex; align-items:flex-start; justify-content:space-between;
     padding:20px 24px; border-bottom:1px solid var(--border);
   }
-  .opt-modal-title { font-size:13px; font-weight:800; letter-spacing:3px; color:var(--accent); }
-  .opt-modal-sub { font-size:11px; color:var(--muted); margin-top:4px; font-family:'Space Mono',monospace; }
+  .opt-modal-title { font-size:15px; font-weight:800; letter-spacing:3px; color:var(--accent); }
+  .opt-modal-sub { font-size:12px; color:var(--muted); margin-top:5px; font-family:'Space Mono',monospace; }
   .opt-modal-close {
     background:none; border:1px solid var(--border); border-radius:6px;
     color:var(--muted); font-size:16px; cursor:pointer; padding:4px 10px;
     transition:all .15s; line-height:1; flex-shrink:0;
   }
   .opt-modal-close:hover { border-color:var(--bear); color:var(--bear); }
-  .opt-modal-body { padding:20px 24px; overflow-y:auto; flex:1; }
+  .opt-modal-body { padding:22px 28px; overflow-y:auto; flex:1; }
+  /* Two-column layout inside strategy panel */
+  @media (min-width:680px) {
+    .opt-2col { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+    .opt-2col-left  { }
+    .opt-2col-right { }
+    .opt-2col-full  { grid-column:span 2; }
+  }
+  @media (max-width:679px) { .opt-2col { display:block; } .opt-2col-right { margin-top:16px; } }
+  @media (min-width:700px) {
+    .opt-modal-layout { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .opt-modal-layout-full { grid-column:span 2; }
+  }
+  @media (max-width:699px) {
+    .opt-modal-layout { display:block; }
+    .opt-modal-layout-full { }
+  }
 
   .opt-tabs { display:flex; gap:6px; margin-bottom:18px; flex-wrap:wrap; }
   .opt-tab {
@@ -183,7 +204,7 @@
   }
   .opt-strat.active { display:block; }
   .opt-strat-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
-  .opt-strat-name { font-size:15px; font-weight:800; letter-spacing:1px; }
+  .opt-strat-name { font-size:17px; font-weight:800; letter-spacing:1px; }
   .opt-strat-name.bull { color:var(--bull); }
   .opt-strat-name.bear { color:var(--bear); }
   .opt-strat-name.neutral { color:var(--gold); }
@@ -199,10 +220,10 @@
   .opt-param-label { font-size:9px; letter-spacing:2px; color:var(--muted); margin-bottom:5px; font-weight:700; }
   .opt-param-val { font-family:'Space Mono',monospace; font-size:14px; font-weight:700; color:var(--text); }
 
-  .opt-strat-desc { font-size:13px; color:#8aabcc; line-height:1.75; margin-bottom:14px; }
+  .opt-strat-desc { font-size:13.5px; color:#9ab8d4; line-height:1.8; margin-bottom:16px; }
   .opt-steps { list-style:none; padding:0; }
   .opt-steps li {
-    font-size:12px; color:var(--text); padding:8px 0;
+    font-size:13px; color:var(--text); padding:10px 0;
     border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:flex-start;
   }
   .opt-steps li:last-child { border-bottom:none; }
@@ -228,11 +249,14 @@
   .opt-ai-label { font-size:10px; letter-spacing:3px; color:var(--muted); margin-bottom:10px; font-weight:700; display:flex; align-items:center; gap:8px; }
   .opt-ai-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pulse 1.5s infinite; }
   .opt-ai-body {
-    background:var(--bg3); border:1px solid var(--border); border-radius:8px;
-    padding:16px 18px; font-size:13px; color:var(--text); line-height:1.85;
-    min-height:60px;
+    background:var(--bg3); border:1px solid var(--border); border-radius:10px;
+    padding:18px 20px; font-size:13.5px; color:var(--text); line-height:1.9;
+    min-height:80px;
   }
   .opt-ai-body.loading { color:var(--muted); font-style:italic; }
+  .opt-ai-section { margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border); }
+  .opt-ai-section:last-child { margin-bottom:0; padding-bottom:0; border-bottom:none; }
+  .opt-ai-section-title { font-size:10px; letter-spacing:2px; color:var(--accent); font-weight:800; margin-bottom:6px; }
 
   /* Payoff diagram */
   .opt-payoff { margin:14px 0 0; }
@@ -285,6 +309,30 @@
   .opt-iv-fill.med  { background:var(--gold); }
   .opt-iv-fill.low  { background:var(--bull); }
 
+
+  /* ── Metric Tooltips ── */
+  .has-tip { position:relative; }
+  .has-tip .tip-text {
+    display:none; position:absolute; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%);
+    background:#0b1825; border:1px solid rgba(0,212,255,0.5); border-radius:10px;
+    padding:12px 15px; width:240px; font-size:12px; color:var(--text); line-height:1.7;
+    z-index:600; pointer-events:none; text-align:left; white-space:normal;
+    box-shadow:0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,212,255,0.1);
+    font-family:'Syne',sans-serif;
+  }
+  .has-tip .tip-text::after {
+    content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    border:7px solid transparent; border-top-color:rgba(0,212,255,0.5);
+  }
+  .has-tip:hover .tip-text,
+  .has-tip.tip-open .tip-text { display:block; animation:tipFade .15s ease; }
+  @keyframes tipFade { from{opacity:0;transform:translateX(-50%) translateY(4px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+  .tip-title { font-size:10px; letter-spacing:2px; color:var(--accent); font-weight:800; margin-bottom:6px; display:block; }
+  /* Mobile — tooltip appears below */
+  @media (pointer:coarse) {
+    .has-tip .tip-text { bottom:auto; top:calc(100% + 10px); animation:none; }
+    .has-tip .tip-text::after { top:auto; bottom:100%; border-top-color:transparent; border-bottom-color:rgba(0,212,255,0.5); }
+  }
   .data-note { font-size:10px; color:var(--muted); padding:10px 18px; font-family:'Space Mono',monospace; letter-spacing:1px; border-top:1px solid var(--border); }
 
   /* ── CHART AREA ── */
@@ -699,14 +747,14 @@
     <div class="sb-block">
       <div class="sb-label">Key Metrics</div>
       <div class="grid2">
-        <div class="mc"><div class="mc-lbl">P/E Ratio</div><div class="mc-val" id="mPE">—</div></div>
-        <div class="mc"><div class="mc-lbl">EPS (TTM)</div><div class="mc-val" id="mEPS">—</div></div>
-        <div class="mc"><div class="mc-lbl">52W High</div><div class="mc-val" id="m52H">—</div></div>
-        <div class="mc"><div class="mc-lbl">52W Low</div><div class="mc-val" id="m52L">—</div></div>
-        <div class="mc"><div class="mc-lbl">Mkt Cap</div><div class="mc-val" id="mCap">—</div></div>
-        <div class="mc"><div class="mc-lbl">Beta</div><div class="mc-val" id="mBeta">—</div></div>
-        <div class="mc" style="grid-column:1/-1"><div class="mc-lbl">FMP Rating</div><div class="mc-val" id="mFMPRating">—</div></div>
-        <div class="mc" style="grid-column:1/-1"><div class="mc-lbl">Analyst Target</div><div class="mc-val" id="mAnalystTarget" style="font-size:13px;line-height:1.4">—</div></div>
+        <div class="mc has-tip"><div class="mc-lbl">P/E Ratio<span class="tip-text"><span class="tip-title">PRICE-TO-EARNINGS</span>How much investors pay per $1 of profit. P/E of 20 means the stock costs 20× annual earnings. Lower = cheaper, but context matters — growth stocks command higher P/Es.</span></div><div class="mc-val" id="mPE">—</div></div>
+        <div class="mc has-tip"><div class="mc-lbl">EPS (TTM)<span class="tip-text"><span class="tip-title">EARNINGS PER SHARE (TRAILING 12M)</span>Company profit divided by shares outstanding over the last 12 months. Higher EPS = more profitable per share. Negative EPS means the company is currently losing money.</span></div><div class="mc-val" id="mEPS">—</div></div>
+        <div class="mc has-tip"><div class="mc-lbl">52W High<span class="tip-text"><span class="tip-title">52-WEEK HIGH</span>The highest price the stock traded in the past year. If current price is near the high, the stock is in strong momentum. A breakout above the 52W high is often a bullish signal.</span></div><div class="mc-val" id="m52H">—</div></div>
+        <div class="mc has-tip"><div class="mc-lbl">52W Low<span class="tip-text"><span class="tip-title">52-WEEK LOW</span>The lowest price traded in the past year. If price is near the low, the stock may be in distress or undervalued — check fundamentals to distinguish the two.</span></div><div class="mc-val" id="m52L">—</div></div>
+        <div class="mc has-tip"><div class="mc-lbl">Mkt Cap<span class="tip-text"><span class="tip-title">MARKET CAPITALISATION</span>Total market value of all shares = share price × shares outstanding. Large-cap (&gt;$10B) are more stable; small-cap (&lt;$2B) are higher risk/reward.</span></div><div class="mc-val" id="mCap">—</div></div>
+        <div class="mc has-tip"><div class="mc-lbl">Beta<span class="tip-text"><span class="tip-title">BETA (VOLATILITY VS MARKET)</span>How much the stock moves relative to the market. Beta 1.5 = moves 1.5× the S&amp;P 500. Higher beta = more volatile. Used to size positions and calculate required margin of safety.</span></div><div class="mc-val" id="mBeta">—</div></div>
+        <div class="mc has-tip" style="grid-column:1/-1"><div class="mc-lbl">FMP Rating<span class="tip-text"><span class="tip-title">ANALYST CONSENSUS RATING</span>Aggregated buy/hold/sell rating from Wall Street analysts via Financial Modeling Prep. Strong Buy &gt; Buy &gt; Hold &gt; Sell. Consensus data — not a single analyst opinion.</span></div><div class="mc-val" id="mFMPRating">—</div></div>
+        <div class="mc has-tip" style="grid-column:1/-1"><div class="mc-lbl">Analyst Target<span class="tip-text"><span class="tip-title">ANALYST PRICE TARGET</span>Average 12-month price target from Wall Street analysts. Upside = how far above current price. Used in our recommendation engine alongside intrinsic value calculations.</span></div><div class="mc-val" id="mAnalystTarget" style="font-size:13px;line-height:1.4">—</div></div>
       </div>
     </div>
 
@@ -744,23 +792,23 @@
     <div class="sb-block">
       <div class="sb-label">Options Plays</div>
       <div class="opts-grid">
-        <div class="opt-card" onclick="openOptionsModal('call')" title="Click for detailed strategy">
-          <div class="opt-type">📈 CALL · Bullish</div>
+        <div class="opt-card has-tip" onclick="openOptionsModal('call')" title="Click for detailed strategy">
+          <div class="opt-type">📈 CALL · Bullish<span class="tip-text" style="width:200px"><span class="tip-title">CALL OPTION</span>The right to BUY 100 shares at the strike price before expiry. Profits when the stock rises above the strike + premium paid. Max loss = premium only.</span></div>
           <div class="opt-strike call" id="oCall">—</div>
           <div class="opt-detail" id="oCallD">—</div>
         </div>
-        <div class="opt-card" onclick="openOptionsModal('put')" title="Click for detailed strategy">
-          <div class="opt-type">🛡 PUT · Hedge</div>
+        <div class="opt-card has-tip" onclick="openOptionsModal('put')" title="Click for detailed strategy">
+          <div class="opt-type">🛡 PUT · Hedge<span class="tip-text" style="width:200px"><span class="tip-title">PUT OPTION</span>The right to SELL 100 shares at the strike price. Used to hedge downside or bet bearish. Profits when the stock falls below strike − premium paid.</span></div>
           <div class="opt-strike put" id="oPut">—</div>
           <div class="opt-detail" id="oPutD">—</div>
         </div>
-        <div class="opt-card" onclick="openOptionsModal('spread')" title="Click for detailed strategy">
-          <div class="opt-type">⚖️ Bull Spread</div>
+        <div class="opt-card has-tip" onclick="openOptionsModal('spread')" title="Click for detailed strategy">
+          <div class="opt-type">⚖️ Bull Spread<span class="tip-text" style="width:200px"><span class="tip-title">BULL CALL SPREAD</span>Buy one call, sell a higher strike call. Reduces cost vs outright call. Defined max gain &amp; max loss. Best for moderate bullish moves — not moonshots.</span></div>
           <div class="opt-strike call" id="oSpread">—</div>
           <div class="opt-detail" id="oSpreadD">—</div>
         </div>
-        <div class="opt-card" onclick="openOptionsModal('income')" title="Click for income strategies">
-          <div class="opt-type">🌡 IV Rank</div>
+        <div class="opt-card has-tip" onclick="openOptionsModal('income')" title="Click for income strategies">
+          <div class="opt-type">🌡 IV Rank<span class="tip-text" style="width:200px"><span class="tip-title">IMPLIED VOLATILITY RANK</span>Where current IV sits vs its 52-week range. 0% = lowest IV seen, 100% = highest. High IVR → sell premium (Covered Calls, CSPs). Low IVR → buy options (Long Calls, LEAPS).</span></div>
           <div class="opt-strike" style="color:var(--gold)" id="oIVR">—</div>
           <div class="opt-detail" id="oIVRD">—</div>
         </div>
@@ -1217,22 +1265,26 @@ function openOptionsModal(type) {
           <div class="opt-risk-text ${s.risk}">${riskLabel}</div>
         </div>
 
-        <!-- Payoff Diagram -->
-        <div class="opt-payoff" style="margin-top:18px">
-          <div class="opt-payoff-label">P&amp;L AT EXPIRY</div>
-          ${buildPayoffSVG(s.payoff, price)}
-          <div class="opt-payoff-legend">
-            <div class="opt-payoff-leg-item"><div class="opt-payoff-leg-dot" style="background:var(--accent)"></div> P&amp;L curve</div>
-            <div class="opt-payoff-leg-item"><div class="opt-payoff-leg-dot" style="background:var(--muted)"></div> Breakeven: $${s.breakeven}</div>
-            <div class="opt-payoff-leg-item"><div class="opt-payoff-leg-dot" style="background:rgba(255,255,255,0.15)"></div> Current: $${price.toFixed(2)}</div>
+        <div class="opt-2col" style="margin-top:16px">
+          <div class="opt-2col-left">
+            <!-- Payoff Diagram -->
+            <div class="opt-payoff">
+              <div class="opt-payoff-label">P&amp;L AT EXPIRY</div>
+              ${buildPayoffSVG(s.payoff, price)}
+              <div class="opt-payoff-legend">
+                <div class="opt-payoff-leg-item"><div class="opt-payoff-leg-dot" style="background:var(--accent)"></div> P&amp;L curve</div>
+                <div class="opt-payoff-leg-item"><div class="opt-payoff-leg-dot" style="background:var(--muted)"></div> B/E: $${s.breakeven}</div>
+                <div class="opt-payoff-leg-item"><div class="opt-payoff-leg-dot" style="background:rgba(255,255,255,0.2)"></div> Now: $${price.toFixed(2)}</div>
+              </div>
+            </div>
+            <!-- Position Sizer -->
+            ${buildPositionSizer(s, price, i)}
+          </div>
+          <div class="opt-2col-right">
+            <!-- Scenario Table -->
+            ${buildScenarioTable(s.payoff, price)}
           </div>
         </div>
-
-        <!-- Scenario Table -->
-        ${buildScenarioTable(s.payoff, price)}
-
-        <!-- Position Sizer -->
-        ${buildPositionSizer(s, price, i)}
       </div>`;
   });
 
@@ -1257,7 +1309,7 @@ function openOptionsModal(type) {
 // ── Payoff diagram (SVG) ──────────────────────────────────────────────────
 function buildPayoffSVG(payoff, price) {
   if (!payoff) return '';
-  const W = 560, H = 110, PAD = { l:40, r:10, t:8, b:24 };
+  const W = 600, H = 160, PAD = { l:46, r:12, t:12, b:28 };
   const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
 
   // Generate price range ±25% from current
@@ -1292,7 +1344,7 @@ function buildPayoffSVG(payoff, price) {
     x: toX(p), label: `$${Math.round(p)}`
   }));
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="height:110px">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="height:160px;width:100%">
     <defs>
       <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#00e676" stop-opacity="0.25"/>
@@ -1455,34 +1507,81 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOptions
 async function fetchOptionsAI(ticker, type, price, ivr, ivrText, signal, industry, stratNames,
                                priceTarget, stopLoss, upside, beta, hi52, lo52) {
   const typeLabel = { call:'bullish calls', put:'puts and hedges', spread:'spreads', income:'income/premium strategies' }[type] || type;
-  const prompt = `You are a concise, professional options trading advisor. Analyse ${typeLabel} for ${ticker} (${industry}).
 
-MARKET DATA:
-- Price: $${price.toFixed(2)} | Signal: ${signal} | Change today: ${optModalData.change?.toFixed(2) || '?'}%
-- IV Rank: ${ivr}th %ile (${ivrText}) | Beta: ${beta?.toFixed(2) || '?'}
-- 52W Range: $${lo52?.toFixed(2) || '?'} – $${hi52?.toFixed(2) || '?'}
-- Price Target: $${priceTarget?.toFixed(2) || '?'} (${upside >= 0 ? '+' : ''}${upside?.toFixed(1) || '?'}% upside)
-- Stop Loss: $${stopLoss?.toFixed(2) || '?'}
-- Strategies shown: ${stratNames.join(', ')}
+  // ── Step 1: Fetch recent news headlines from Finnhub ─────────────────
+  let newsSection = '';
+  let newsHtml = '';
+  try {
+    const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
+    const nd = await nr.json();
+    if (nd.headlines?.length) {
+      newsSection = '\n\nRECENT NEWS (last 7 days — factor these into your analysis):\n' +
+        nd.headlines.map(h => `• [${h.time}] ${h.headline}${h.summary ? '. ' + h.summary : ''}`).join('\n');
+      // Build news pills to show in UI
+      newsHtml = `<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;letter-spacing:2px;color:var(--muted);font-weight:800;margin-bottom:8px">📰 RECENT NEWS · USED IN ANALYSIS</div>
+        ${nd.headlines.slice(0,3).map(h => `
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 11px;margin-bottom:6px">
+            <div style="font-size:11px;color:var(--text);line-height:1.5;margin-bottom:3px">${h.headline}</div>
+            <div style="font-size:10px;color:var(--muted)">${h.source} · ${h.time}</div>
+          </div>`).join('')}
+      </div>`;
+    }
+  } catch(_) {}
 
-Give a focused 4-point analysis:
-1. BEST STRATEGY: Which of the ${stratNames.join('/')} is most appropriate NOW given IV rank and signal — and exactly why?
-2. ENTRY TIMING: Enter now, or wait? What specific price level or condition to wait for?
-3. KEY RISK: One specific risk that could hurt this trade (earnings date, resistance level, sector headwind)?
-4. PRO TIP: One non-obvious tactic specific to ${ticker} at $${price.toFixed(2)} right now.
+  // ── Step 2: Build enriched prompt with news + world context ──────────
+  const pctOfRange = hi52 > lo52 ? (((price - lo52)/(hi52 - lo52))*100).toFixed(0) : '?';
+  const prompt = `You are an expert options trading advisor. Analyse ${typeLabel} for ${ticker} (${industry}).
 
-Be direct. No disclaimers. Reference actual $ levels.`;
+STOCK DATA:
+- Price: $${price.toFixed(2)} | Signal: ${signal} | Today's move: ${optModalData.change >= 0 ? '+' : ''}${optModalData.change?.toFixed(2) || '0'}%
+- IV Rank: ${ivr}th percentile — ${ivrText}
+- Beta: ${beta?.toFixed(2) || '1.0'} | 52W range: $${lo52?.toFixed(2)||'?'}–$${hi52?.toFixed(2)||'?'} (currently at ${pctOfRange}% of range)
+- Intrinsic value target: $${priceTarget?.toFixed(2)||'?'} (${upside>=0?'+':''}${upside?.toFixed(1)||'?'}% upside)
+- Stop loss level: $${stopLoss?.toFixed(2)||'?'}
+- Strategies being evaluated: ${stratNames.join(' / ')}
+${newsSection}
+
+GLOBAL CONTEXT TO CONSIDER: current macroeconomic environment including interest rate trajectory, tariff/trade policy impacts, AI infrastructure spending cycle, any sector-specific regulatory trends, and geopolitical risks relevant to ${industry}.
+
+Provide analysis in exactly these 4 sections with these headers:
+
+**BEST STRATEGY**
+State the single best strategy for RIGHT NOW and exactly why — referencing IV rank, the signal, and any relevant news or macro factor.
+
+**ENTRY TIMING**
+Should the trader enter immediately or wait? Give a specific price trigger or catalyst to watch (e.g. "wait for a close above $X" or "enter if it holds $Y on a pullback").
+
+**KEY RISK**
+The #1 thing that could blow up this trade — earnings date, Fed meeting, trade tariff announcement, technical level, or a news catalyst. Be specific.
+
+**PRO TIP**
+One non-obvious edge: a smarter way to structure this trade, an IV quirk to exploit, or a current-events angle most traders are missing.
+
+Keep each section to 3–4 punchy sentences. Use $ amounts. No generic disclaimers.`;
 
   try {
     const res = await fetch('/api/analyze', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ messages:[{ role:'user', content:prompt }] })
+      body: JSON.stringify({ messages:[{ role:'user', content:prompt }], maxTokens:700 })
     });
     const data = await res.json();
-    const text = data.text || data.content?.[0]?.text || '';
+    const raw  = data.text || data.content?.[0]?.text || '';
+
+    // Format response: bold section headers, line breaks
+    const formatted = raw
+      .replace(/\*\*(BEST STRATEGY|ENTRY TIMING|KEY RISK|PRO TIP)\*\*/g,
+        '<div class="opt-ai-section-title">$1</div>')
+      .replace(/\n\n/g, '</div><div class="opt-ai-section">')
+      .replace(/\n/g, '<br>');
+
     const el = document.getElementById('optAiBody');
-    if (el) { el.classList.remove('loading'); el.innerHTML = text.replace(/\n/g,'<br>') || 'Analysis unavailable.'; }
+    if (el) {
+      el.classList.remove('loading');
+      el.innerHTML = newsHtml +
+        '<div class="opt-ai-section">' + (formatted || 'Analysis unavailable.') + '</div>';
+    }
   } catch(e) {
     const el = document.getElementById('optAiBody');
     if (el) { el.classList.remove('loading'); el.textContent = 'AI analysis unavailable.'; }
@@ -2491,7 +2590,7 @@ function drawChart(data) {
 // ── AI ANALYSIS ──
 async function runAI(ticker, quote, profile, metrics) {
   const el = document.getElementById('aiBody');
-  el.textContent = 'Analysing...';
+  el.textContent = 'Fetching news & analysing...';
   const m     = metrics;
   const price = quote.c;
   const eps   = m['epsBasicExclExtraAnnual'] || '—';
@@ -2500,31 +2599,43 @@ async function runAI(ticker, quote, profile, metrics) {
   const h52   = m['52WeekHigh'] || '—';
   const l52   = m['52WeekLow']  || '—';
   const trend = quote.c > quote.pc ? 'UPTREND' : 'DOWNTREND';
+  const chgPct = ((quote.c - quote.pc) / quote.pc * 100).toFixed(2);
 
-  const prompt = `You are a professional stock and options analyst. Analyze ${ticker} (${profile.name || ticker}, ${profile.finnhubIndustry || 'equity'}) and write a sharp trading brief.
+  // ── Fetch recent news first ──────────────────────────────────────────
+  let newsContext = '';
+  try {
+    const nr = await fetch(`/api/news-search?symbol=${encodeURIComponent(ticker)}`);
+    const nd = await nr.json();
+    if (nd.headlines?.length) {
+      newsContext = '\n\nRECENT NEWS (last 7 days):\n' +
+        nd.headlines.map(h => `• [${h.time}] ${h.headline}`).join('\n');
+    }
+  } catch(_) {}
 
-Live Data:
-- Current price: $${price.toFixed(2)} | Prev close: $${quote.pc.toFixed(2)}
-- P/E: ${pe} | EPS TTM: ${eps} | Beta: ${beta}
-- 52W range: $${l52}–$${h52}
-- Intraday: Open $${quote.o} · High $${quote.h} · Low $${quote.l}
-- Trend: ${trend}
+  const prompt = `You are a sharp equity analyst. Write a concise trading brief for ${ticker} (${profile.name || ticker}, ${profile.finnhubIndustry || 'equity'}).
 
-Write 4–5 sentences covering:
-1. Valuation verdict (cheap/fair/expensive relative to fundamentals)
-2. Technical momentum and what the price action suggests
-3. Specific entry strategy — shares OR options (name the strike/expiry type)
-4. The single biggest risk to this trade right now
+MARKET DATA:
+- Price: $${price.toFixed(2)} (${chgPct >= 0 ? '+' : ''}${chgPct}% today) | Trend: ${trend}
+- P/E: ${pe} | EPS (TTM): $${eps} | Beta: ${beta}
+- 52W range: $${l52}–$${h52} | Intraday: O$${quote.o} H$${quote.h} L$${quote.l}
+${newsContext}
 
-Be direct, use numbers, no fluff. Professional tone.`;
+GLOBAL MACRO CONTEXT: Consider current macro environment — interest rate trajectory (Fed policy), US-China tariff situation, sector-specific tailwinds/headwinds (AI capex cycle, consumer spending, energy prices), and any geopolitical factors relevant to ${profile.finnhubIndustry || 'this sector'}.
+
+Write exactly 5 punchy sentences:
+1. VALUATION: Is it cheap, fair, or expensive vs fundamentals? Reference the P/E and 52W range.
+2. MOMENTUM: What does the price action and trend tell you? Any technical signals to note?
+3. NEWS IMPACT: How do the recent headlines above affect the short-term outlook? If no relevant news, discuss the macro environment impact instead.
+4. TRADE: Specific entry — shares or options (name strike + expiry type). Be concrete.
+5. RISK: The single biggest risk to this trade right now. Name it specifically.
+
+Be direct. Use $ numbers. No generic disclaimers. Sound like a Bloomberg terminal.`;
 
   try {
     const resp = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], maxTokens: 500 })
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'AI analysis failed');
@@ -2532,7 +2643,7 @@ Be direct, use numbers, no fluff. Professional tone.`;
     el.textContent = '';
     for (let i = 0; i < text.length; i++) {
       el.textContent += text[i];
-      if (i % 5 === 0) await delay(6);
+      if (i % 4 === 0) await delay(5);
     }
   } catch (e) {
     el.textContent = `AI analysis unavailable: ${e.message}`;
@@ -3162,47 +3273,83 @@ function initMobileLayout() {
 }
 
 // ── PINCH ZOOM DETECTION ─────────────────────────────────────────
-// Track layout width separately from zoom — only react to true window
-// width changes (orientation change / browser resize), NOT pinch zoom.
+// Only react to true orientation/resize changes — never to pinch zoom.
 let _lastLayoutWidth = window.innerWidth;
+let _isPinching = false;    // true while 2+ fingers are on screen
+let _pinchEndTimer = null;
 
-// visualViewport fires on pinch zoom but NOT on layout resize
-// window.resize fires on BOTH — so we use visualViewport to distinguish
-if (window.visualViewport) {
-  // Only trigger layout changes when the layout viewport width actually changes
-  // (i.e. orientation flip or browser resize), not when zoom scale changes
-  window.visualViewport.addEventListener('resize', () => {
-    const newWidth = window.visualViewport.width / window.visualViewport.scale;
-    if (Math.abs(newWidth - _lastLayoutWidth) > 50) {
-      _lastLayoutWidth = newWidth;
-      if (newWidth > 768) {
-        document.querySelector('.sidebar').classList.remove('mob-active');
-        document.querySelector('.chart-area').classList.remove('mob-active');
-      } else {
-        initMobileLayout();
-      }
+// Detect pinch start/end via touch events on the chart area
+const _chartWrap = document.getElementById('chart-wrap') || document.querySelector('.chart-area');
+if (_chartWrap) {
+  _chartWrap.addEventListener('touchstart', e => {
+    if (e.touches.length >= 2) {
+      _isPinching = true;
+      clearTimeout(_pinchEndTimer);
     }
-    // If only scale changed (pinch zoom) → do nothing, keep current tab
+  }, { passive: true });
+
+  _chartWrap.addEventListener('touchend', e => {
+    if (e.touches.length < 2) {
+      // Small delay so any spurious resize events that fire after lift are ignored
+      clearTimeout(_pinchEndTimer);
+      _pinchEndTimer = setTimeout(() => { _isPinching = false; }, 500);
+    }
+  }, { passive: true });
+}
+
+function _handleLayoutResize(newWidth) {
+  if (_isPinching) return; // never switch tabs during a pinch gesture
+  if (Math.abs(newWidth - _lastLayoutWidth) > 50) {
+    _lastLayoutWidth = newWidth;
+    if (newWidth > 768) {
+      document.querySelector('.sidebar').classList.remove('mob-active');
+      document.querySelector('.chart-area').classList.remove('mob-active');
+    } else {
+      initMobileLayout();
+    }
+  }
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const layoutWidth = window.visualViewport.width / window.visualViewport.scale;
+    _handleLayoutResize(layoutWidth);
   });
 } else {
-  // Fallback for browsers without visualViewport
   let resizeTimer;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      const newWidth = window.innerWidth;
-      if (Math.abs(newWidth - _lastLayoutWidth) > 50) {
-        _lastLayoutWidth = newWidth;
-        if (newWidth > 768) {
-          document.querySelector('.sidebar').classList.remove('mob-active');
-          document.querySelector('.chart-area').classList.remove('mob-active');
-        } else {
-          initMobileLayout();
-        }
-      }
-    }, 150);
+    resizeTimer = setTimeout(() => _handleLayoutResize(window.innerWidth), 200);
   });
 }
+
+// ── Mobile tooltip: tap to show/hide, outside tap to close ──────────────
+let _tipJustOpened = false;
+document.addEventListener('click', e => {
+  const hasTip = e.target.closest('.has-tip');
+  const isCoarse = window.matchMedia('(pointer:coarse)').matches;
+
+  // Always close other open tips
+  document.querySelectorAll('.has-tip.tip-open').forEach(el => {
+    if (el !== hasTip) el.classList.remove('tip-open');
+  });
+
+  if (!isCoarse) return; // desktop uses CSS :hover — no JS needed
+
+  if (hasTip) {
+    // Only show tooltip if this card doesn't open a modal (opt-card with onclick)
+    const isOptCard = hasTip.classList.contains('opt-card');
+    if (!isOptCard) {
+      // Prevent tap from being treated as a background dismiss
+      _tipJustOpened = true;
+      hasTip.classList.toggle('tip-open');
+      setTimeout(() => { _tipJustOpened = false; }, 50);
+    }
+  } else if (!_tipJustOpened) {
+    // Tap on background → close all
+    document.querySelectorAll('.has-tip.tip-open').forEach(el => el.classList.remove('tip-open'));
+  }
+}, { capture: false });
 
 initMobileLayout();
 </script>
