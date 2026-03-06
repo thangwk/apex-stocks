@@ -2806,9 +2806,6 @@ const STAGES = [
 ];
 
 function setBusy(on, msg = 'LOADING...') {
-  // Disable/enable run button to prevent concurrent requests
-  const btn = document.getElementById('runBtn');
-  if (btn) btn.disabled = on;
   const wrap = document.getElementById('spinner');
   const btn  = document.getElementById('runBtn');
   wrap.classList.toggle('on', on);
